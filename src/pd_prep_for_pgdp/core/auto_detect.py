@@ -116,8 +116,15 @@ def median_aspect_ratio(image_bytes_list: list[bytes]) -> float:
 
     ratios: list[float] = []
     for bts in image_bytes_list:
+        if not bts:
+            continue
         arr = np.frombuffer(bts, dtype=np.uint8)
-        img = cv2.imdecode(arr, cv2.IMREAD_GRAYSCALE)
+        try:
+            img = cv2.imdecode(arr, cv2.IMREAD_GRAYSCALE)
+        except cv2.error:
+            # cv2 raises on empty/invalid buffers in some builds rather than
+            # returning None. Treat both as "skip this entry".
+            continue
         if img is None:
             continue
         h, w = img.shape[:2]

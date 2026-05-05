@@ -2,6 +2,12 @@
 
 `temp_settings` builds a Settings instance pointing at an isolated tmpdir so
 every test gets a clean filesystem-storage / SQLite database / no-auth setup.
+
+`gpu_available` is True when cupy is importable AND a working CUDA runtime
+is reachable. Tests that exercise the real LocalBackend path use
+`@pytest.mark.skipif(not gpu_available, reason=...)` so they run on
+CUDA hosts (incl. this devcontainer when present) and skip cleanly on
+CPU-only CI.
 """
 
 from __future__ import annotations
@@ -14,6 +20,25 @@ from fastapi.testclient import TestClient
 
 from pd_prep_for_pgdp.bootstrap import build_app
 from pd_prep_for_pgdp.settings import Settings
+
+
+def _detect_gpu() -> bool:
+    """True iff cupy can import AND `cupy.cuda.is_available()` succeeds.
+
+    Both checks are needed — cupy can install without a working CUDA runtime
+    (e.g. wheel mismatch) and the import succeeds but device queries fail.
+    """
+    try:
+        import cupy  # type: ignore[import-not-found]
+    except ImportError:
+        return False
+    try:
+        return bool(cupy.cuda.is_available())
+    except Exception:
+        return False
+
+
+gpu_available: bool = _detect_gpu()
 
 
 @pytest.fixture

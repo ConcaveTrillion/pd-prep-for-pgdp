@@ -1,5 +1,5 @@
 .PHONY: help setup refresh-version install uninstall reset remove-venv lint format \
-        pre-commit-check test build clean ci local-setup dev-local install-local \
+        pre-commit-check test e2e build clean ci local-setup dev-local install-local \
         uninstall-local check-local-editable run-local frontend-install frontend-build \
         frontend-dev openapi-export upgrade-pd-book-tools release-patch release-minor \
         release-major _do-release docker-build docker-run mise-download mise-setup \
@@ -194,8 +194,11 @@ format: ## Format code with ruff
 pre-commit-check: ## Run pre-commit on all files
 	uv run pre-commit run --all-files
 
-test: ## Run pytest
-	uv run pytest tests/ -v
+test: ## Run pytest (excludes e2e/)
+	uv run pytest tests/ -v --ignore=tests/e2e
+
+e2e: frontend-build ## Run Playwright E2E tests (requires `playwright install chromium`)
+	uv run --group e2e pytest tests/e2e -v
 
 build: frontend-build ## Build the wheel (with frontend bundled)
 	uv build
