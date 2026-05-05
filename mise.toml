@@ -10,4 +10,9 @@
 [tools]
 node = "24"     # Active LTS
 python = "3.13"
-uv = "latest"
+
+# uv is intentionally NOT managed by mise. The shared devcontainer image
+# installs uv system-wide at /usr/local/bin/uv, and mise's aqua-backed
+# installer recently broke verifying Astral's release attestations. If
+# you're outside the devcontainer and need uv, install it via Astral's
+# script: `curl -LsSf https://astral.sh/uv/install.sh | sh`.
