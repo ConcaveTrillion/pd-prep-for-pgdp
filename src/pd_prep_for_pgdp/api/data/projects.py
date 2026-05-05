@@ -81,9 +81,7 @@ async def create_project(
         upload_key = f"projects/{project_id}/source.zip"
         upload_url = await storage.presign_put(upload_key, "application/zip")
 
-    return CreateProjectResponse(
-        project=project, upload_url=upload_url, upload_key=upload_key
-    )
+    return CreateProjectResponse(project=project, upload_url=upload_url, upload_key=upload_key)
 
 
 @router.get("/projects", response_model=list[Project])

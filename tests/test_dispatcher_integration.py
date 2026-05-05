@@ -47,9 +47,7 @@ def _project(project_id: str = "p1") -> Project:
         status=ProjectStatus.processing,
         page_count=3,
         proof_page_count=3,
-        config=ProjectConfig(
-            book_name="t", source_uri="", proof_start_idx0=0, proof_end_idx0=2
-        ),
+        config=ProjectConfig(book_name="t", source_uri="", proof_start_idx0=0, proof_end_idx0=2),
         pipeline_state=PipelineState(),
         storage_prefix=f"projects/{project_id}/",
     )
@@ -103,9 +101,7 @@ async def test_managed_mode_enqueues_into_dispatcher_instead_of_running(
     await db.put_project(project)
     await db.put_pages(
         [
-            PageRecord(
-                project_id=project.id, idx0=i, prefix=f"p{i:03d}", source_stem=f"s_{i}"
-            )
+            PageRecord(project_id=project.id, idx0=i, prefix=f"p{i:03d}", source_stem=f"s_{i}")
             for i in range(3)
         ]
     )
@@ -125,7 +121,10 @@ async def test_managed_mode_enqueues_into_dispatcher_instead_of_running(
     await db.put_job(job)
 
     runner = InProcessJobRunner(
-        database=db, storage=storage, gpu=backend, dispatcher=dispatcher  # type: ignore[arg-type]
+        database=db,
+        storage=storage,
+        gpu=backend,
+        dispatcher=dispatcher,  # type: ignore[arg-type]
     )
     await runner.run_pending(max_jobs=1)
 
@@ -148,17 +147,13 @@ async def test_managed_mode_enqueues_into_dispatcher_instead_of_running(
 
 
 @pytest.mark.asyncio
-async def test_immediate_mode_still_runs_inline(
-    db: SqliteDatabase, storage: FilesystemStorage
-) -> None:
+async def test_immediate_mode_still_runs_inline(db: SqliteDatabase, storage: FilesystemStorage) -> None:
     """Without a dispatcher, the runner falls back to the inline path."""
     from pd_prep_for_pgdp.core.job_runner import InProcessJobRunner
 
     project = _project()
     await db.put_project(project)
-    await db.put_pages(
-        [PageRecord(project_id=project.id, idx0=0, prefix="p001", source_stem="s")]
-    )
+    await db.put_pages([PageRecord(project_id=project.id, idx0=0, prefix="p001", source_stem="s")])
 
     backend = FakeBackend()
     job = Job(

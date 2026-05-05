@@ -68,9 +68,7 @@ class SingleExecutor:
             self._queue = asyncio.PriorityQueue()
         return self._queue
 
-    def submit(
-        self, priority: Priority, fn: Callable[..., Any], *args: Any
-    ) -> asyncio.Future:
+    def submit(self, priority: Priority, fn: Callable[..., Any], *args: Any) -> asyncio.Future:
         """Enqueue a work item; returns a future that resolves with the result.
 
         The priority + a monotonic counter ordering ensures we never tie-break
@@ -96,18 +94,14 @@ class SingleExecutor:
         loop = asyncio.get_running_loop()
         while True:
             first = await self.queue.get()
-            items: list[tuple[int, int, Callable[..., Any], tuple[Any, ...], asyncio.Future]] = [
-                first
-            ]
+            items: list[tuple[int, int, Callable[..., Any], tuple[Any, ...], asyncio.Future]] = [first]
             deadline = loop.time() + self._window_s
             while True:
                 remaining = deadline - loop.time()
                 if remaining <= 0:
                     break
                 try:
-                    items.append(
-                        await asyncio.wait_for(self.queue.get(), timeout=remaining)
-                    )
+                    items.append(await asyncio.wait_for(self.queue.get(), timeout=remaining))
                 except TimeoutError:
                     break
 
@@ -117,9 +111,7 @@ class SingleExecutor:
 
     async def _dispatch(
         self,
-        items: list[
-            tuple[int, int, Callable[..., Any], tuple[Any, ...], asyncio.Future]
-        ],
+        items: list[tuple[int, int, Callable[..., Any], tuple[Any, ...], asyncio.Future]],
         loop: asyncio.AbstractEventLoop,
     ) -> None:
         for _prio, _seq, fn, args, fut in items:

@@ -69,9 +69,7 @@ def storage(tmp_path) -> FilesystemStorage:
 
 
 @pytest.mark.asyncio
-async def test_build_package_handler_writes_zip(
-    db: SqliteDatabase, storage: FilesystemStorage
-) -> None:
+async def test_build_package_handler_writes_zip(db: SqliteDatabase, storage: FilesystemStorage) -> None:
     from pd_prep_for_pgdp.core.job_runner import InProcessJobRunner
 
     project = _project()
@@ -130,16 +128,10 @@ async def test_batch_text_postprocess_handler_rewrites_text(
 
     project = _project()
     project = project.model_copy(
-        update={
-            "config": project.config.model_copy(
-                update={"custom_scannos": {"foo": "FOO"}}
-            )
-        }
+        update={"config": project.config.model_copy(update={"custom_scannos": {"foo": "FOO"}})}
     )
     await db.put_project(project)
-    page = PageRecord(
-        project_id=project.id, idx0=0, prefix="p001", source_stem="src_001"
-    )
+    page = PageRecord(project_id=project.id, idx0=0, prefix="p001", source_stem="src_001")
     await db.put_pages([page])
     text_key = f"projects/{project.id}/ocr_text/src_001_p001.txt"
     await storage.put_bytes(text_key, b"He said \xe2\x80\x9chi\xe2\x80\x9d to foo.")

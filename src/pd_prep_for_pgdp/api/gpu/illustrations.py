@@ -53,9 +53,7 @@ async def suggest_splits(
     return SuggestSplitsResponse()
 
 
-@router.post(
-    "/suggest-illustrations", response_model=SuggestIllustrationsResponse
-)
+@router.post("/suggest-illustrations", response_model=SuggestIllustrationsResponse)
 async def suggest_illustrations(
     body: SuggestIllustrationsRequest,
     gpu: GPUBackend = Depends(get_gpu_backend),
@@ -63,9 +61,7 @@ async def suggest_illustrations(
     return SuggestIllustrationsResponse()
 
 
-@router.post(
-    "/extract-illustration", response_model=ExtractIllustrationResponse
-)
+@router.post("/extract-illustration", response_model=ExtractIllustrationResponse)
 async def extract_illustration(
     body: ExtractIllustrationRequest,
     gpu: GPUBackend = Depends(get_gpu_backend),

@@ -78,9 +78,7 @@ async def list_pages(
     # When the caller filters, total reflects the visible page count so the
     # UI can render "N of M pages need review".
     filtered_total = (
-        len(pages)
-        if any(f is not None for f in (page_type, has_splits, status, review_needed))
-        else total
+        len(pages) if any(f is not None for f in (page_type, has_splits, status, review_needed)) else total
     )
     return ListPagesResponse(pages=pages, next_cursor=next_cursor, total=filtered_total)
 
@@ -138,9 +136,7 @@ async def update_page(
         raise HTTPException(404, "page not found")
     update = body.model_dump(exclude_unset=True)
     if "config_overrides" in update and update["config_overrides"] is not None:
-        page.config_overrides = PageConfigOverrides.model_validate(
-            update["config_overrides"]
-        )
+        page.config_overrides = PageConfigOverrides.model_validate(update["config_overrides"])
     if "page_type" in update:
         page.page_type = body.page_type or page.page_type
     if "alignment" in update:
@@ -183,9 +179,7 @@ async def update_page_text(
             break
     if text_key is None:
         full_prefix = f"{page.prefix}{suffix}"
-        stem_prefix = (
-            f"{page.source_stem}_{full_prefix}" if page.source_stem else full_prefix
-        )
+        stem_prefix = f"{page.source_stem}_{full_prefix}" if page.source_stem else full_prefix
         text_key = f"projects/{project_id}/ocr_text/{stem_prefix}.txt"
     await storage.put_bytes(text_key, body.text.encode("utf-8"), "text/plain")
     return UpdatePageTextResponse(text_key=text_key)
@@ -216,9 +210,7 @@ async def get_page_text(
             break
     if text_key is None:
         full_prefix = f"{page.prefix}{real_suffix}"
-        stem_prefix = (
-            f"{page.source_stem}_{full_prefix}" if page.source_stem else full_prefix
-        )
+        stem_prefix = f"{page.source_stem}_{full_prefix}" if page.source_stem else full_prefix
         text_key = f"projects/{project_id}/ocr_text/{stem_prefix}.txt"
     if not await storage.exists(text_key):
         raise HTTPException(404, "text not found")

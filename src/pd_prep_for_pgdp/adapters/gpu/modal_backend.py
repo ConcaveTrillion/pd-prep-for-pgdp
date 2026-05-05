@@ -61,8 +61,7 @@ class ModalBackend(GPUBackend):
             from modal import Function  # type: ignore[import-not-found]
         except ImportError as e:
             raise RuntimeError(
-                "Modal backend requires the [modal] extra: "
-                "install with 'pip install pd-prep-for-pgdp[modal]'"
+                "Modal backend requires the [modal] extra: install with 'pip install pd-prep-for-pgdp[modal]'"
             ) from e
 
         # Modal v0.66+ uses Function.lookup(app_name, fn_name).

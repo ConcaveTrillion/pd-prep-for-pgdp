@@ -91,9 +91,7 @@ class InProcessJobRunner:
         if job.status.value in terminal:
             await self._events.close(job.id)
 
-    async def _on_dispatcher_flush(
-        self, job_id: str, results: list[BatchJobResult]
-    ) -> None:
+    async def _on_dispatcher_flush(self, job_id: str, results: list[BatchJobResult]) -> None:
         if not job_id:
             return
         job = await self._db.get_job(job_id)
@@ -108,9 +106,7 @@ class InProcessJobRunner:
                 "message": f"ok={ok} err={err}",
             }
         )
-        first_err = next(
-            (r.error for r in results if not r.ok and r.error), None
-        )
+        first_err = next((r.error for r in results if not r.ok and r.error), None)
         updated = job.model_copy(
             update={
                 "status": JobStatus.error if err and not ok else JobStatus.complete,
@@ -226,9 +222,7 @@ class InProcessJobRunner:
         await self._db.put_job(updated)
         await self._emit(updated)
 
-    async def _update_progress(
-        self, job: Job, *, current: int, total: int, message: str = ""
-    ) -> Job:
+    async def _update_progress(self, job: Job, *, current: int, total: int, message: str = "") -> Job:
         progress = job.progress.model_copy(
             update={"current": current, "total": total, "message": message or job.progress.message}
         )
@@ -258,9 +252,7 @@ async def _handle_ingest(runner: InProcessJobRunner, job: Job) -> None:
     source_type = "zip" if source_key.endswith(".zip") else "local_folder"
 
     async def _report(current: int, total: int, stem: str) -> None:
-        await runner._update_progress(
-            job, current=current, total=total, message=f"ingesting {stem}"
-        )
+        await runner._update_progress(job, current=current, total=total, message=f"ingesting {stem}")
 
     result = await ingest_source(
         project=project,
@@ -320,9 +312,7 @@ async def _handle_text_postprocess(runner: InProcessJobRunner, job: Job) -> None
                 system=system,
                 project=project.config,
             )
-            await runner._storage.put_bytes(
-                text_key, cleaned.encode("utf-8"), "text/plain"
-            )
+            await runner._storage.put_bytes(text_key, cleaned.encode("utf-8"), "text/plain")
             total += 1
     await runner._update_progress(
         job, current=total, total=total, message=f"postprocessed {total} text files"
@@ -350,10 +340,7 @@ async def _handle_extract_illustrations(runner: InProcessJobRunner, job: Job) ->
                 continue
             ext = region.output_format
             content_type = "image/jpeg" if ext == "jpg" else "image/png"
-            key = (
-                f"projects/{job.project_id}/hi_res/"
-                f"{page.prefix}_{region.index:02d}.{ext}"
-            )
+            key = f"projects/{job.project_id}/hi_res/{page.prefix}_{region.index:02d}.{ext}"
             await runner._storage.put_bytes(key, crop, content_type)
             total += 1
     await runner._update_progress(
@@ -364,9 +351,7 @@ async def _handle_extract_illustrations(runner: InProcessJobRunner, job: Job) ->
     )
 
 
-async def _handle_batch_process_pages(
-    runner: InProcessJobRunner, job: Job
-) -> None:
+async def _handle_batch_process_pages(runner: InProcessJobRunner, job: Job) -> None:
     await _run_batch_pages(runner, job, job_type="batch_process_pages")
 
 
@@ -374,9 +359,7 @@ async def _handle_batch_ocr(runner: InProcessJobRunner, job: Job) -> None:
     await _run_batch_pages(runner, job, job_type="batch_ocr")
 
 
-async def _run_batch_pages(
-    runner: InProcessJobRunner, job: Job, *, job_type: str
-) -> None:
+async def _run_batch_pages(runner: InProcessJobRunner, job: Job, *, job_type: str) -> None:
     """Shared body for `batch_process_pages` and `batch_ocr`.
 
     Builds one BatchJobItem per page, hands them to the GPU backend, and
@@ -417,12 +400,8 @@ async def _run_batch_pages(
     if isinstance(runner._dispatcher, BatchDispatcher):
         for item in items:
             await runner._dispatcher.submit(item, job_id=job.id)
-        await runner._update_progress(
-            job, current=0, total=len(items), message=f"queued {len(items)} items"
-        )
-        await runner._db.put_job(
-            job.model_copy(update={"status": JobStatus.scheduled})
-        )
+        await runner._update_progress(job, current=0, total=len(items), message=f"queued {len(items)} items")
+        await runner._db.put_job(job.model_copy(update={"status": JobStatus.scheduled}))
         # Skip _mark_complete in _run_one — the dispatcher owns this job now.
         runner._scheduled_jobs.add(job.id)
         return

@@ -136,9 +136,7 @@ class SqliteDatabase:
     async def get_project(self, project_id: str) -> Project | None:
         def _go() -> Project | None:
             with self._cursor() as cur:
-                row = cur.execute(
-                    "SELECT body FROM projects WHERE id = ?", (project_id,)
-                ).fetchone()
+                row = cur.execute("SELECT body FROM projects WHERE id = ?", (project_id,)).fetchone()
                 return Project.model_validate_json(row[0]) if row else None
 
         return await self._run(_go)
@@ -150,8 +148,7 @@ class SqliteDatabase:
         def _go() -> None:
             with self._cursor() as cur:
                 cur.execute(
-                    "INSERT OR REPLACE INTO projects (id, owner_id, body, updated_at) "
-                    "VALUES (?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO projects (id, owner_id, body, updated_at) VALUES (?, ?, ?, ?)",
                     (project.id, project.owner_id, body, ts),
                 )
 
@@ -180,8 +177,7 @@ class SqliteDatabase:
                     "SELECT COUNT(*) FROM pages WHERE project_id = ?", (project_id,)
                 ).fetchone()[0]
                 rows = cur.execute(
-                    "SELECT body FROM pages WHERE project_id = ? "
-                    "ORDER BY idx0 LIMIT ? OFFSET ?",
+                    "SELECT body FROM pages WHERE project_id = ? ORDER BY idx0 LIMIT ? OFFSET ?",
                     (project_id, limit, offset),
                 ).fetchall()
             pages = [PageRecord.model_validate_json(r[0]) for r in rows]
@@ -244,8 +240,7 @@ class SqliteDatabase:
         def _go() -> None:
             with self._cursor() as cur:
                 cur.execute(
-                    "INSERT OR REPLACE INTO jobs (id, owner_id, body, created_at) "
-                    "VALUES (?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO jobs (id, owner_id, body, created_at) VALUES (?, ?, ?, ?)",
                     (job.id, job.owner_id, body, ts),
                 )
 
@@ -255,8 +250,7 @@ class SqliteDatabase:
         def _go() -> list[Job]:
             with self._cursor() as cur:
                 rows = cur.execute(
-                    "SELECT body FROM jobs WHERE owner_id = ? "
-                    "ORDER BY created_at DESC LIMIT ?",
+                    "SELECT body FROM jobs WHERE owner_id = ? ORDER BY created_at DESC LIMIT ?",
                     (owner_id, limit),
                 ).fetchall()
             return [Job.model_validate_json(r[0]) for r in rows]

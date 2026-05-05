@@ -75,9 +75,7 @@ def storage(tmp_path) -> FilesystemStorage:
 
 
 @pytest.mark.asyncio
-async def test_ingest_zip_creates_one_page_per_image(
-    db: SqliteDatabase, storage: FilesystemStorage
-) -> None:
+async def test_ingest_zip_creates_one_page_per_image(db: SqliteDatabase, storage: FilesystemStorage) -> None:
     from pd_prep_for_pgdp.core.ingest import ingest_source
 
     project = _project()
@@ -117,9 +115,7 @@ async def test_ingest_zip_creates_one_page_per_image(
 
 
 @pytest.mark.asyncio
-async def test_ingest_zip_advances_project_status(
-    db: SqliteDatabase, storage: FilesystemStorage
-) -> None:
+async def test_ingest_zip_advances_project_status(db: SqliteDatabase, storage: FilesystemStorage) -> None:
     from pd_prep_for_pgdp.core.ingest import ingest_source
 
     project = _project()
@@ -142,9 +138,7 @@ async def test_ingest_zip_advances_project_status(
 
 
 @pytest.mark.asyncio
-async def test_ingest_zip_skips_non_image_entries(
-    db: SqliteDatabase, storage: FilesystemStorage
-) -> None:
+async def test_ingest_zip_skips_non_image_entries(db: SqliteDatabase, storage: FilesystemStorage) -> None:
     from pd_prep_for_pgdp.core.ingest import ingest_source
 
     project = _project()

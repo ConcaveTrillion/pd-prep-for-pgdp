@@ -119,9 +119,7 @@ def extract_illustration(
     if region.output_format == "png":
         ok, buf = cv2.imencode(".png", crop)
     else:
-        ok, buf = cv2.imencode(
-            ".jpg", crop, [int(cv2.IMWRITE_JPEG_QUALITY), int(region.jpeg_quality)]
-        )
+        ok, buf = cv2.imencode(".jpg", crop, [int(cv2.IMWRITE_JPEG_QUALITY), int(region.jpeg_quality)])
     if not ok:
         raise RuntimeError(f"cv2.imencode failed for {region.output_format}")
     return bytes(io.BytesIO(buf.tobytes()).getvalue())

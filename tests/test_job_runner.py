@@ -76,9 +76,7 @@ def storage(tmp_path) -> FilesystemStorage:
 
 
 @pytest.mark.asyncio
-async def test_runner_executes_queued_ingest_job(
-    db: SqliteDatabase, storage: FilesystemStorage
-) -> None:
+async def test_runner_executes_queued_ingest_job(db: SqliteDatabase, storage: FilesystemStorage) -> None:
     from pd_prep_for_pgdp.core.job_runner import InProcessJobRunner
 
     project = _project()
@@ -111,9 +109,7 @@ async def test_runner_executes_queued_ingest_job(
 
 
 @pytest.mark.asyncio
-async def test_runner_records_error_on_failure(
-    db: SqliteDatabase, storage: FilesystemStorage
-) -> None:
+async def test_runner_records_error_on_failure(db: SqliteDatabase, storage: FilesystemStorage) -> None:
     from pd_prep_for_pgdp.core.job_runner import InProcessJobRunner
 
     project = _project()
@@ -140,9 +136,7 @@ async def test_runner_records_error_on_failure(
 
 
 @pytest.mark.asyncio
-async def test_runner_skips_non_queued_jobs(
-    db: SqliteDatabase, storage: FilesystemStorage
-) -> None:
+async def test_runner_skips_non_queued_jobs(db: SqliteDatabase, storage: FilesystemStorage) -> None:
     from pd_prep_for_pgdp.core.job_runner import InProcessJobRunner
 
     project = _project()
@@ -162,9 +156,7 @@ async def test_runner_skips_non_queued_jobs(
 
 
 @pytest.mark.asyncio
-async def test_runner_loop_can_be_cancelled(
-    db: SqliteDatabase, storage: FilesystemStorage
-) -> None:
+async def test_runner_loop_can_be_cancelled(db: SqliteDatabase, storage: FilesystemStorage) -> None:
     from pd_prep_for_pgdp.core.job_runner import InProcessJobRunner
 
     runner = InProcessJobRunner(database=db, storage=storage, poll_interval=0.05)

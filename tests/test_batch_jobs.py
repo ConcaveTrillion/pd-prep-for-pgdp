@@ -100,9 +100,7 @@ async def test_batch_process_pages_dispatches_one_item_per_page(
     project = _project()
     await db.put_project(project)
     pages = [
-        PageRecord(
-            project_id=project.id, idx0=i, prefix=f"p{i:03d}", source_stem=f"src_{i}"
-        )
+        PageRecord(project_id=project.id, idx0=i, prefix=f"p{i:03d}", source_stem=f"src_{i}")
         for i in range(3)
     ]
     await db.put_pages(pages)
@@ -143,9 +141,7 @@ async def test_batch_process_pages_defaults_to_full_proof_range(
     project = _project()
     await db.put_project(project)
     pages = [
-        PageRecord(
-            project_id=project.id, idx0=i, prefix=f"p{i:03d}", source_stem=f"src_{i}"
-        )
+        PageRecord(project_id=project.id, idx0=i, prefix=f"p{i:03d}", source_stem=f"src_{i}")
         for i in range(3)
     ]
     await db.put_pages(pages)
@@ -171,16 +167,13 @@ async def test_batch_process_pages_defaults_to_full_proof_range(
 
 
 @pytest.mark.asyncio
-async def test_batch_ocr_dispatches_one_item_per_page(
-    db: SqliteDatabase, storage: FilesystemStorage
-) -> None:
+async def test_batch_ocr_dispatches_one_item_per_page(db: SqliteDatabase, storage: FilesystemStorage) -> None:
     from pd_prep_for_pgdp.core.job_runner import InProcessJobRunner
 
     project = _project()
     await db.put_project(project)
     pages = [
-        PageRecord(project_id=project.id, idx0=i, prefix=f"p{i:03d}", source_stem=f"s_{i}")
-        for i in range(3)
+        PageRecord(project_id=project.id, idx0=i, prefix=f"p{i:03d}", source_stem=f"s_{i}") for i in range(3)
     ]
     await db.put_pages(pages)
 

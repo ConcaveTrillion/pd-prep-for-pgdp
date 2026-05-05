@@ -73,33 +73,61 @@ def _seed(settings: Settings, project_id: str = "rq1") -> None:
         await db.put_project(project)
         pages = [
             PageRecord(
-                project_id=project_id, idx0=0, prefix="p001", source_stem="s0",
-                outputs=[PageOutput(
-                    full_prefix="p001", split_suffix=None, reading_order=0,
-                    ocr_status=PageProcessingStatus.complete,
-                )],
+                project_id=project_id,
+                idx0=0,
+                prefix="p001",
+                source_stem="s0",
+                outputs=[
+                    PageOutput(
+                        full_prefix="p001",
+                        split_suffix=None,
+                        reading_order=0,
+                        ocr_status=PageProcessingStatus.complete,
+                    )
+                ],
             ),
             PageRecord(
-                project_id=project_id, idx0=1, prefix="p002", source_stem="s1",
-                outputs=[PageOutput(
-                    full_prefix="p002", split_suffix=None, reading_order=0,
-                    ocr_status=PageProcessingStatus.complete,
-                )],
+                project_id=project_id,
+                idx0=1,
+                prefix="p002",
+                source_stem="s1",
+                outputs=[
+                    PageOutput(
+                        full_prefix="p002",
+                        split_suffix=None,
+                        reading_order=0,
+                        ocr_status=PageProcessingStatus.complete,
+                    )
+                ],
             ),
             PageRecord(
-                project_id=project_id, idx0=2, prefix="p003", source_stem="s2",
-                outputs=[PageOutput(
-                    full_prefix="p003", split_suffix=None, reading_order=0,
-                    ocr_status=PageProcessingStatus.error,
-                    ocr_error="DocTR returned no words",
-                )],
+                project_id=project_id,
+                idx0=2,
+                prefix="p003",
+                source_stem="s2",
+                outputs=[
+                    PageOutput(
+                        full_prefix="p003",
+                        split_suffix=None,
+                        reading_order=0,
+                        ocr_status=PageProcessingStatus.error,
+                        ocr_error="DocTR returned no words",
+                    )
+                ],
             ),
             PageRecord(
-                project_id=project_id, idx0=3, prefix="p004", source_stem="s3",
-                outputs=[PageOutput(
-                    full_prefix="p004", split_suffix=None, reading_order=0,
-                    ocr_status=PageProcessingStatus.pending,
-                )],
+                project_id=project_id,
+                idx0=3,
+                prefix="p004",
+                source_stem="s3",
+                outputs=[
+                    PageOutput(
+                        full_prefix="p004",
+                        split_suffix=None,
+                        reading_order=0,
+                        ocr_status=PageProcessingStatus.pending,
+                    )
+                ],
             ),
         ]
         await db.put_pages(pages)

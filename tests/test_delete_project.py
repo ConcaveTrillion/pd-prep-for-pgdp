@@ -55,10 +55,7 @@ def _seed(settings: Settings) -> str:
             )
         )
         await db.put_pages(
-            [
-                PageRecord(project_id=pid, idx0=i, prefix=f"p{i:03d}", source_stem=f"s{i}")
-                for i in range(2)
-            ]
+            [PageRecord(project_id=pid, idx0=i, prefix=f"p{i:03d}", source_stem=f"s{i}") for i in range(2)]
         )
         await db.close()
         return pid

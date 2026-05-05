@@ -65,9 +65,7 @@ def test_patch_text_writes_to_ocr_text_key_recorded_on_output(
         await db.initialize()
         now = datetime.now(UTC)
         project_id = "tr1"
-        ocr_text_key = (
-            f"projects/{project_id}/ocr_text/src_007_p007.txt"
-        )
+        ocr_text_key = f"projects/{project_id}/ocr_text/src_007_p007.txt"
         project = Project(
             id=project_id,
             owner_id="default",

@@ -59,9 +59,7 @@ def storage(tmp_path) -> FilesystemStorage:
 
 
 @pytest.mark.asyncio
-async def test_ingest_emits_per_page_progress_events(
-    db: SqliteDatabase, storage: FilesystemStorage
-) -> None:
+async def test_ingest_emits_per_page_progress_events(db: SqliteDatabase, storage: FilesystemStorage) -> None:
     pytest.importorskip("cv2")
     now = datetime.now(UTC)
     project = Project(

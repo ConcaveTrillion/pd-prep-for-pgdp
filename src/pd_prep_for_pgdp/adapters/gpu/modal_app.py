@@ -56,17 +56,13 @@ if _MODAL_AVAILABLE:
         # S3, return the URL. The scaffold doesn't yet wire the storage
         # adapter inside Modal.
         del payload
-        raise NotImplementedError(
-            "Modal process_page needs S3 storage wired — scaffold only"
-        )
+        raise NotImplementedError("Modal process_page needs S3 storage wired — scaffold only")
 
     @app.function(gpu=GPU_PROFILE, timeout=DEFAULT_TIMEOUT_S)
     def run_ocr(payload: dict) -> dict:
         """OCR one page or split on a Modal GPU container."""
         del payload
-        raise NotImplementedError(
-            "Modal run_ocr needs S3 storage wired — scaffold only"
-        )
+        raise NotImplementedError("Modal run_ocr needs S3 storage wired — scaffold only")
 
     @app.function(gpu=GPU_PROFILE, timeout=DEFAULT_TIMEOUT_S * 6)
     def run_batch(payloads: list[dict]) -> list[dict]:

@@ -42,9 +42,7 @@ async def export_system_defaults(
     return Response(
         content=body,
         media_type="application/json",
-        headers={
-            "Content-Disposition": 'attachment; filename="pgdp-prep-defaults.json"'
-        },
+        headers={"Content-Disposition": 'attachment; filename="pgdp-prep-defaults.json"'},
     )
 
 

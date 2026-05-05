@@ -34,9 +34,7 @@ async def submit_batch_job(
     settings = Settings()  # tolerable: cheap; bootstrap holds the canonical instance
     interval = settings.dispatch_interval_seconds
     dispatch_mode = "scheduled" if interval > 0 else "immediate"
-    next_dispatch = (
-        datetime.now(UTC) + timedelta(seconds=interval) if interval > 0 else None
-    )
+    next_dispatch = datetime.now(UTC) + timedelta(seconds=interval) if interval > 0 else None
 
     payload: dict = {}
     if body.page_idxs:
@@ -102,18 +100,14 @@ async def retry_job(
     if job is None or job.owner_id != user.user_id:
         raise HTTPException(404, "job not found")
     if job.status not in {JobStatus.error, JobStatus.cancelled}:
-        raise HTTPException(
-            409, f"only error/cancelled jobs are retryable; this is {job.status.value}"
-        )
+        raise HTTPException(409, f"only error/cancelled jobs are retryable; this is {job.status.value}")
 
     from ...settings import Settings
 
     settings = Settings()
     interval = settings.dispatch_interval_seconds
     dispatch_mode = "scheduled" if interval > 0 else "immediate"
-    next_dispatch = (
-        datetime.now(UTC) + timedelta(seconds=interval) if interval > 0 else None
-    )
+    next_dispatch = datetime.now(UTC) + timedelta(seconds=interval) if interval > 0 else None
 
     new_job = Job(
         id=uuid.uuid4().hex,

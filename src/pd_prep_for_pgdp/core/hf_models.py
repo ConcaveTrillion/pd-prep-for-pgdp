@@ -107,9 +107,7 @@ def resolve_ocr_models(
     files), or both are omitted (download from HF Hub).
     """
     if bool(detection_path) != bool(recognition_path):
-        raise ValueError(
-            "detection_path and recognition_path must both be set or both omitted"
-        )
+        raise ValueError("detection_path and recognition_path must both be set or both omitted")
     if detection_path and recognition_path:
         if not detection_path.is_file():
             raise FileNotFoundError(f"detection model not found: {detection_path}")

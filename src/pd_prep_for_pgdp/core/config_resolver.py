@@ -56,9 +56,7 @@ def resolve_page_config(
             po,
             system.default_pixel_count_rows,
         ),
-        ocr_bbox_edge_min_words=_pick(
-            "ocr_bbox_edge_min_words", None, po, system.ocr_bbox_edge_min_words
-        ),
+        ocr_bbox_edge_min_words=_pick("ocr_bbox_edge_min_words", None, po, system.ocr_bbox_edge_min_words),
         ocr_engine=_pick("ocr_engine", None, po, system.ocr_engine),
         ocr_model_key=_pick("ocr_model_key", None, po, system.ocr_model_key),
         ocr_dpi=_pick("ocr_dpi", None, po, system.ocr_dpi),
@@ -91,9 +89,7 @@ def resolve_page_config(
 def blank_page_idxs(pages: Sequence[PageRecord]) -> list[int]:
     """Pages that should NOT generate proofing image / OCR output."""
     return sorted(
-        p.idx0
-        for p in pages
-        if p.page_type in {PageType.blank, PageType.plate_b, PageType.plate_r}
+        p.idx0 for p in pages if p.page_type in {PageType.blank, PageType.plate_b, PageType.plate_r}
     )
 
 

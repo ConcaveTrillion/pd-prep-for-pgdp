@@ -24,10 +24,7 @@ async def assign_prefixes(*, project: Project, database: IDatabase) -> int:
     updates: list[PageRecord] = []
     for page in pages_in:
         new_prefix = compute_prefix(page.idx0, project.config, pages_by_idx) or ""
-        new_ignore = (
-            page.idx0 < project.config.proof_start_idx0
-            or page.idx0 > project.config.proof_end_idx0
-        )
+        new_ignore = page.idx0 < project.config.proof_start_idx0 or page.idx0 > project.config.proof_end_idx0
         if page.prefix == new_prefix and page.ignore == new_ignore:
             continue
         updates.append(page.model_copy(update={"prefix": new_prefix, "ignore": new_ignore}))

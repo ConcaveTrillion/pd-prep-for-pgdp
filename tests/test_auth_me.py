@@ -43,18 +43,14 @@ def test_me_in_none_mode_returns_default(tmp_path) -> None:
 
 
 def test_me_in_apikey_mode_without_token_is_401(tmp_path) -> None:
-    app = build_app(
-        _settings(tmp_path, auth_mode="apikey", api_key="secret")
-    )
+    app = build_app(_settings(tmp_path, auth_mode="apikey", api_key="secret"))
     with TestClient(app) as client:
         r = client.get("/api/auth/me")
         assert r.status_code == 401
 
 
 def test_me_in_apikey_mode_with_token_works(tmp_path) -> None:
-    app = build_app(
-        _settings(tmp_path, auth_mode="apikey", api_key="secret")
-    )
+    app = build_app(_settings(tmp_path, auth_mode="apikey", api_key="secret"))
     with TestClient(app) as client:
         r = client.get(
             "/api/auth/me",

@@ -43,13 +43,11 @@ def test_env_js_served_in_none_auth_mode(tmp_path) -> None:
         assert "window.__ENV__" in body
         assert "API_BASE" in body
         # No token in none mode.
-        assert "API_TOKEN" not in body or "API_TOKEN: \"\"" in body or 'API_TOKEN: ""' in body
+        assert "API_TOKEN" not in body or 'API_TOKEN: ""' in body or 'API_TOKEN: ""' in body
 
 
 def test_env_js_includes_api_token_in_apikey_mode(tmp_path) -> None:
-    app = build_app(
-        _settings(tmp_path, auth_mode="apikey", api_key="secret-token-123")
-    )
+    app = build_app(_settings(tmp_path, auth_mode="apikey", api_key="secret-token-123"))
     with TestClient(app) as client:
         r = client.get("/env.js")
         assert r.status_code == 200

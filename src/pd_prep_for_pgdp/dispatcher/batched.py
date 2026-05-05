@@ -87,9 +87,7 @@ class BatchDispatcher:
                 try:
                     await cb(job_id, job_results)
                 except Exception:
-                    log.exception(
-                        "BatchDispatcher completion callback failed for job %s", job_id
-                    )
+                    log.exception("BatchDispatcher completion callback failed for job %s", job_id)
 
         return list(results)
 

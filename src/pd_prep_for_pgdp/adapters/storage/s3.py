@@ -69,9 +69,7 @@ class S3Storage(IStorage):
             kwargs = {"Bucket": self._bucket, "Prefix": full_prefix}
             if token:
                 kwargs["ContinuationToken"] = token
-            page = await anyio.to_thread.run_sync(
-                lambda kw=kwargs: self._client.list_objects_v2(**kw)
-            )
+            page = await anyio.to_thread.run_sync(lambda kw=kwargs: self._client.list_objects_v2(**kw))
             for obj in page.get("Contents", []):
                 yield ObjectInfo(
                     key=obj["Key"],

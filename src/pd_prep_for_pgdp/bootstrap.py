@@ -66,9 +66,7 @@ def build_database(settings: Settings) -> IDatabase:
         try:
             from .adapters.database.postgres import PostgresDatabase
         except ImportError as e:
-            raise RuntimeError(
-                "Postgres requires the [postgres] extra"
-            ) from e
+            raise RuntimeError("Postgres requires the [postgres] extra") from e
         return PostgresDatabase(url)
     raise RuntimeError(f"unrecognised PGDP_DATABASE_URL: {url!r}")
 
@@ -120,9 +118,7 @@ def build_gpu_backend(
         return CpuBackend(storage=storage, database=database, executor=executor)
     if chosen == "modal":
         if not (settings.modal_token_id and settings.modal_token_secret):
-            raise RuntimeError(
-                "MODAL_TOKEN_ID + MODAL_TOKEN_SECRET required when gpu_backend=modal"
-            )
+            raise RuntimeError("MODAL_TOKEN_ID + MODAL_TOKEN_SECRET required when gpu_backend=modal")
         return ModalBackend(settings.modal_token_id, settings.modal_token_secret)
     if chosen == "shared_container":
         if not settings.shared_gpu_url:
@@ -156,9 +152,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     from .core.queue.single_executor import SingleExecutor
 
     executor = SingleExecutor()
-    gpu = build_gpu_backend(
-        settings, storage=storage, database=database, executor=executor
-    )
+    gpu = build_gpu_backend(settings, storage=storage, database=database, executor=executor)
     dispatcher = build_dispatcher(settings, gpu)
 
     from .core.job_events import JobEventBroker
@@ -190,10 +184,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(
         title="pd-prep-for-pgdp",
-        description=(
-            "Convert a folder/zip of scanned book images into a PGDP-ready "
-            "submission package."
-        ),
+        description=("Convert a folder/zip of scanned book images into a PGDP-ready submission package."),
         lifespan=lifespan,
     )
 

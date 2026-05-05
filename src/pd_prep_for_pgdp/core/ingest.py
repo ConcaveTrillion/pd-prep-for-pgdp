@@ -95,9 +95,7 @@ async def ingest_source(
 
     config_update = project.config.model_dump()
     if auto_detect and entries:
-        median_ratio = await anyio.to_thread.run_sync(
-            median_aspect_ratio, [e.bytes_ for e in entries]
-        )
+        median_ratio = await anyio.to_thread.run_sync(median_aspect_ratio, [e.bytes_ for e in entries])
         new_overrides = dict(project.config.default_overrides)
         new_overrides["page_h_w_ratio"] = float(median_ratio)
         config_update["default_overrides"] = new_overrides
@@ -130,9 +128,7 @@ class _SourceEntry:
 _VALID_NAME_RE = re.compile(r"[^\x00-\x1f\\/:\*\?\"<>\|]+")
 
 
-async def _enumerate_zip(
-    storage: IStorage, source_key: str, project_id: str
-) -> list[_SourceEntry]:
+async def _enumerate_zip(storage: IStorage, source_key: str, project_id: str) -> list[_SourceEntry]:
     raw = await storage.get_bytes(source_key)
     out: list[_SourceEntry] = []
     with zipfile.ZipFile(io.BytesIO(raw)) as zf:
@@ -152,9 +148,7 @@ async def _enumerate_zip(
     return out
 
 
-async def _enumerate_folder(
-    storage: IStorage, prefix: str
-) -> list[_SourceEntry]:
+async def _enumerate_folder(storage: IStorage, prefix: str) -> list[_SourceEntry]:
     entries: list[_SourceEntry] = []
     async for obj in storage.list_prefix(prefix):
         ext = _ext_lower(obj.key)
@@ -203,9 +197,7 @@ async def _build_page_records(
     processed = 0
     for entry in entries:
         try:
-            thumb_bytes = await anyio.to_thread.run_sync(
-                _make_thumbnail_bytes, entry.bytes_
-            )
+            thumb_bytes = await anyio.to_thread.run_sync(_make_thumbnail_bytes, entry.bytes_)
         except _CorruptImageError as e:
             errors.append(f"{entry.stem}: {e}")
             continue
@@ -216,9 +208,7 @@ async def _build_page_records(
         page_type = None
         alignment = None
         if auto_detect:
-            suggestion = await anyio.to_thread.run_sync(
-                detect_page_attributes, entry.bytes_
-            )
+            suggestion = await anyio.to_thread.run_sync(detect_page_attributes, entry.bytes_)
             page_type = suggestion.suggested_type
             alignment = suggestion.suggested_alignment
 
@@ -227,9 +217,7 @@ async def _build_page_records(
         # detector's inference cost.
         regions: list[Any] = []
         if layout_detector is not None:
-            with tempfile.NamedTemporaryFile(
-                suffix=Path(entry.key).suffix or ".png", delete=False
-            ) as tmp:
+            with tempfile.NamedTemporaryFile(suffix=Path(entry.key).suffix or ".png", delete=False) as tmp:
                 tmp.write(entry.bytes_)
                 tmp_path = Path(tmp.name)
             try:
@@ -237,9 +225,7 @@ async def _build_page_records(
                     # Bind tmp_path explicitly so the closure captures the
                     # current iteration's path, not the loop variable.
                     lambda lp=tmp_path, det=layout_detector, conf=layout_confidence: (
-                        auto_detect_illustrations(
-                            lp, layout_detector=det, confidence_threshold=conf
-                        )
+                        auto_detect_illustrations(lp, layout_detector=det, confidence_threshold=conf)
                     )
                 )
             except Exception as e:  # detector failures shouldn't abort ingest
@@ -253,8 +239,7 @@ async def _build_page_records(
             "prefix": "",
             "source_stem": entry.stem,
             "ignore": (
-                valid_idx0 < project.config.proof_start_idx0
-                or valid_idx0 > project.config.proof_end_idx0
+                valid_idx0 < project.config.proof_start_idx0 or valid_idx0 > project.config.proof_end_idx0
             ),
             "source_key": entry.key,
             "thumbnail_key": thumb_key,
@@ -314,9 +299,7 @@ def _make_thumbnail_bytes(src: bytes) -> bytes:
 # ─── pipeline state bookkeeping ────────────────────────────────────────────
 
 
-def _record_step(
-    state: PipelineState, *, step_id: int, errors: list[str]
-) -> PipelineState:
+def _record_step(state: PipelineState, *, step_id: int, errors: list[str]) -> PipelineState:
     new_steps = dict(state.steps)
     new_steps[step_id] = StepState(
         status=StepStatus.error if errors else StepStatus.complete,

@@ -62,13 +62,10 @@ class CpuBackend(GPUBackend):
         """Run Step 4 for a single page; return the proofing image URL."""
         if self._storage is None or self._database is None:
             raise RuntimeError(
-                "CpuBackend.process_page requires storage + database adapters "
-                "(injected by build_app)."
+                "CpuBackend.process_page requires storage + database adapters (injected by build_app)."
             )
 
-        project_record, system_defaults, page = await self._load_context(
-            req.project_id, req.idx0
-        )
+        project_record, system_defaults, page = await self._load_context(req.project_id, req.idx0)
 
         # Workbench overrides win over the persisted record for this call.
         if req.config_overrides is not None:
@@ -83,24 +80,16 @@ class CpuBackend(GPUBackend):
 
         from ...core.pipeline.process_page import process_page_cpu
 
-        priority = (
-            Priority.INTERACTIVE if req.output_context == "workbench" else Priority.BATCH
-        )
+        priority = Priority.INTERACTIVE if req.output_context == "workbench" else Priority.BATCH
         if self._executor is not None:
-            result = await self._executor.submit(
-                priority, process_page_cpu, source_bytes, cfg
-            )
+            result = await self._executor.submit(priority, process_page_cpu, source_bytes, cfg)
         else:
-            result = await anyio.to_thread.run_sync(
-                lambda: process_page_cpu(source_bytes, cfg)
-            )
+            result = await anyio.to_thread.run_sync(lambda: process_page_cpu(source_bytes, cfg))
 
         if req.output_context == "workbench":
             out_key = f"projects/{req.project_id}/workbench_temp/{req.idx0}/proofing.png"
         else:
-            out_key = (
-                f"projects/{req.project_id}/processed/{page.source_stem}_{page.prefix}.png"
-            )
+            out_key = f"projects/{req.project_id}/processed/{page.source_stem}_{page.prefix}.png"
         await self._storage.put_bytes(out_key, result.proofing_png, "image/png")
         url = await self._storage.presign_get(out_key)
 
@@ -118,13 +107,10 @@ class CpuBackend(GPUBackend):
         """OCR a single page or a single split."""
         if self._storage is None or self._database is None:
             raise RuntimeError(
-                "CpuBackend.run_ocr requires storage + database adapters "
-                "(injected by build_app)."
+                "CpuBackend.run_ocr requires storage + database adapters (injected by build_app)."
             )
 
-        project_record, system, page = await self._load_context(
-            req.project_id, req.idx0
-        )
+        project_record, system, page = await self._load_context(req.project_id, req.idx0)
         cfg = resolve_page_config(system, project_record.config, page)
         if req.engine is not None:
             cfg = cfg.model_copy(update={"ocr_engine": req.engine})
@@ -134,13 +120,9 @@ class CpuBackend(GPUBackend):
             full_prefix = f"{page.prefix}{req.split_suffix}"
         else:
             full_prefix = page.prefix
-        ocr_image_key = (
-            f"projects/{req.project_id}/ocr_images/{page.source_stem}_{full_prefix}.png"
-        )
+        ocr_image_key = f"projects/{req.project_id}/ocr_images/{page.source_stem}_{full_prefix}.png"
         if not await self._storage.exists(ocr_image_key):
-            raise FileNotFoundError(
-                f"OCR-cropped image not found: {ocr_image_key} — run Step 6 first"
-            )
+            raise FileNotFoundError(f"OCR-cropped image not found: {ocr_image_key} — run Step 6 first")
         img_bytes = await self._storage.get_bytes(ocr_image_key)
 
         priority = Priority.BATCH if req.batch_mode else Priority.INTERACTIVE
@@ -153,9 +135,7 @@ class CpuBackend(GPUBackend):
                 lambda: _ocr_image_bytes(img_bytes, cfg, system, req.split_suffix)
             )
 
-        text_key = (
-            f"projects/{req.project_id}/ocr_text/{page.source_stem}_{full_prefix}.txt"
-        )
+        text_key = f"projects/{req.project_id}/ocr_text/{page.source_stem}_{full_prefix}.txt"
         await self._storage.put_bytes(text_key, text.encode("utf-8"), "text/plain")
 
         return OcrPageResponse(text=text, words=words, text_key=text_key)
@@ -174,8 +154,7 @@ class CpuBackend(GPUBackend):
                     req = ProcessPageRequest(
                         project_id=item.project_id,
                         idx0=item.idx0,
-                        config_overrides=item.payload.get("config_overrides")
-                        or _empty_overrides(),
+                        config_overrides=item.payload.get("config_overrides") or _empty_overrides(),
                         output_context="commit",
                     )
                     resp = await self.process_page(req)
@@ -230,9 +209,7 @@ class CpuBackend(GPUBackend):
 
     # ── Helpers ────────────────────────────────────────────────────────────
 
-    async def _load_context(
-        self, project_id: str, idx0: int
-    ) -> tuple[Any, SystemDefaults, PageRecord]:
+    async def _load_context(self, project_id: str, idx0: int) -> tuple[Any, SystemDefaults, PageRecord]:
         project = await self._database.get_project(project_id)
         if project is None:
             raise FileNotFoundError(f"project not found: {project_id}")

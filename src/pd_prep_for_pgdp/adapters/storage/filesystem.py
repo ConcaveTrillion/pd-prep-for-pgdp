@@ -56,9 +56,7 @@ class FilesystemStorage(IStorage):
                 stat = f.stat()
                 yield ObjectInfo(key=rel, size=stat.st_size, last_modified_epoch=stat.st_mtime)
 
-    async def presign_put(
-        self, key: str, content_type: str, expires_in: int = 3600
-    ) -> str:
+    async def presign_put(self, key: str, content_type: str, expires_in: int = 3600) -> str:
         # Filesystem mode does direct uploads through the FastAPI process; the
         # caller PUTs to /cdn/<key> with the same path it uses to GET.
         return f"{self._cdn}/{key.lstrip('/')}"

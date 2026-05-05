@@ -93,9 +93,7 @@ def storage(tmp_path) -> FilesystemStorage:
 
 
 @pytest.mark.asyncio
-async def test_ingest_writes_auto_detect_suggestions(
-    db: SqliteDatabase, storage: FilesystemStorage
-) -> None:
+async def test_ingest_writes_auto_detect_suggestions(db: SqliteDatabase, storage: FilesystemStorage) -> None:
     pytest.importorskip("cv2")
     from pd_prep_for_pgdp.core.ingest import ingest_source
 
@@ -157,9 +155,7 @@ async def test_ingest_records_median_aspect_in_default_overrides(
 
 
 @pytest.mark.asyncio
-async def test_ingest_skips_auto_detect_when_disabled(
-    db: SqliteDatabase, storage: FilesystemStorage
-) -> None:
+async def test_ingest_skips_auto_detect_when_disabled(db: SqliteDatabase, storage: FilesystemStorage) -> None:
     pytest.importorskip("cv2")
     from pd_prep_for_pgdp.core.ingest import ingest_source
 

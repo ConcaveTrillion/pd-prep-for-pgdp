@@ -182,9 +182,7 @@ async def test_layout_detector_writes_regions_to_pages(
 
 
 @pytest.mark.asyncio
-async def test_no_detector_means_no_regions(
-    db: SqliteDatabase, storage: FilesystemStorage
-) -> None:
+async def test_no_detector_means_no_regions(db: SqliteDatabase, storage: FilesystemStorage) -> None:
     pytest.importorskip("cv2")
     from pd_prep_for_pgdp.core.ingest import ingest_source
 

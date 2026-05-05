@@ -57,9 +57,7 @@ def _project(project_id: str = "p1") -> Project:
 
 
 @pytest.mark.asyncio
-async def test_runner_emits_progress_then_complete(
-    db: SqliteDatabase, storage: FilesystemStorage
-) -> None:
+async def test_runner_emits_progress_then_complete(db: SqliteDatabase, storage: FilesystemStorage) -> None:
     """Use an empty source — ingest succeeds with 0 pages — and assert the
     sequence of event `type`s the broker received.
     """
@@ -108,9 +106,7 @@ async def test_runner_emits_progress_then_complete(
 
 
 @pytest.mark.asyncio
-async def test_runner_emits_error_event_on_failure(
-    db: SqliteDatabase, storage: FilesystemStorage
-) -> None:
+async def test_runner_emits_error_event_on_failure(db: SqliteDatabase, storage: FilesystemStorage) -> None:
     """A handler that throws produces an `error`-typed event."""
     from pd_prep_for_pgdp.core import job_runner as jr
 
