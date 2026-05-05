@@ -541,6 +541,7 @@ type JobType =
 
 interface JobSnapshot {
   id: string;
+  type: string;
   status: string;
   progress: { current: number; total: number; message: string };
   error_message: string | null;
