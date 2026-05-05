@@ -27,6 +27,12 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
 
+# hatch-vcs derives the version from git tags — the build context here
+# doesn't include `.git`, so we have to pretend. CI passes the real tag
+# via --build-arg VERSION=…; defaults to 0.0.0+docker for ad-hoc builds.
+ARG VERSION=0.0.0+docker
+ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PD_PREP_FOR_PGDP=${VERSION}
+
 # Project metadata first so dependency-only layer caches well.
 COPY pyproject.toml ./
 COPY src/ ./src/
