@@ -34,6 +34,8 @@ from .api.auth import install_auth_routes
 from .api.data import install_data_routes
 from .api.gpu import install_gpu_routes
 from .api.middleware.error_handler import install_error_handlers
+from .api.middleware.request_id import RequestIdMiddleware
+from .core.logging_config import configure_logging
 from .dispatcher.base import IDispatcher
 from .dispatcher.batched import BatchDispatcher
 from .dispatcher.immediate import ImmediateDispatcher
@@ -142,6 +144,11 @@ def build_dispatcher(settings: Settings, gpu: GPUBackend) -> IDispatcher:
 def build_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
 
+    # Install root logging handler once per process. Idempotent: a second
+    # build_app() (uvicorn --reload) replaces our handler rather than
+    # stacking, so callers don't double-log.
+    configure_logging(settings.log_format)
+
     storage = build_storage(settings)
     database = build_database(settings)
     auth = build_auth(settings)
@@ -210,6 +217,13 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Request-id middleware is added last so it ends up outermost in the
+    # ASGI stack — it must run before CORS on incoming requests so the
+    # correlation id is set on the contextvar before any handler logs,
+    # and after CORS on the response so the header survives. Starlette
+    # applies `add_middleware` calls in reverse order, hence "last = outermost".
+    app.add_middleware(RequestIdMiddleware, header_name=settings.request_id_header)
 
     app.state.settings = settings
     app.state.job_events = job_events
