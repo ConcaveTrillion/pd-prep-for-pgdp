@@ -4,6 +4,8 @@ import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { PageRecord } from "../api/types";
 import { WordBboxOverlay } from "../components/WordBboxOverlay";
+import { diffLines } from "../lib/lineDiff";
+import { LineDiffView } from "../lib/LineDiffView";
 import {
   buildWordOffsetIndex,
   offsetToWord,
@@ -27,6 +29,12 @@ export function TextReviewPage() {
   const [dirty, setDirty] = useState(false);
   const [activeWordIndex, setActiveWordIndex] = useState<number | null>(null);
   const [words, setWords] = useState<OcrWord[]>([]);
+  // Re-OCR diff (P1 #7): snapshot of `text` taken via the reocr
+  // mutation's `onMutate`, kept in state until the user dismisses /
+  // accepts the diff, saves the page, navigates away, or the
+  // mutation fails. `null` means "no pending diff to show".
+  const [priorText, setPriorText] = useState<string | null>(null);
+  const [showDiff, setShowDiff] = useState<boolean>(true);
 
   // Image-load state drives the overlay sizing — Konva Stage waits
   // until the <img> has rendered so we know natural & rendered sizes.
@@ -76,6 +84,13 @@ export function TextReviewPage() {
     };
   }, []);
 
+  // Router stays mounted on Prev/Next (only :idx0 changes), so the
+  // re-OCR diff snapshot would otherwise leak across pages. Clear
+  // it whenever the page identity (project / idx0 / split) changes.
+  useEffect(() => {
+    setPriorText(null);
+  }, [projectId, idx0, splitSuffix]);
+
   const wordIndex = useMemo(
     () => buildWordOffsetIndex(text, words),
     [text, words],
@@ -89,6 +104,9 @@ export function TextReviewPage() {
       ),
     onSuccess: () => {
       setDirty(false);
+      // Persisting the user's edits ends the "compare against
+      // prior re-OCR" workflow — the new content is now canonical.
+      setPriorText(null);
       queryClient.invalidateQueries({
         queryKey: ["page-text", projectId, idx0, splitSuffix],
       });
@@ -102,6 +120,15 @@ export function TextReviewPage() {
         idx0,
         split_suffix: splitSuffix || null,
       }),
+    onMutate: () => {
+      // Snapshot the textarea content right before the new OCR
+      // result lands. Closure captures the current `text`, so
+      // back-to-back re-OCR clicks always compare against the
+      // text that was on screen immediately before THIS click —
+      // not the very first prior-text we ever captured.
+      setPriorText(text);
+      setShowDiff(true);
+    },
     onSuccess: (resp) => {
       setText(resp.text);
       setWords(resp.words ?? []);
@@ -111,7 +138,24 @@ export function TextReviewPage() {
         queryKey: ["page-text", projectId, idx0, splitSuffix],
       });
     },
+    onError: () => {
+      // No new text was written; nothing meaningful to diff.
+      setPriorText(null);
+    },
   });
+
+  // Memoised so typing in the textarea doesn't re-run the LCS on
+  // every keystroke. Only computed when a snapshot exists; the
+  // empty-array fallback is cheap and keeps the render path
+  // unconditional.
+  const diff = useMemo(
+    () => (priorText !== null ? diffLines(priorText, text) : []),
+    [priorText, text],
+  );
+  const diffHasChanges = useMemo(
+    () => diff.some((d) => d.kind !== "equal"),
+    [diff],
+  );
 
   if (page.isLoading) return <p className="text-slate-500">Loading…</p>;
   if (!page.data) return <p className="text-red-600">Page not found.</p>;
@@ -283,7 +327,37 @@ export function TextReviewPage() {
                 ocr failed: {(reocr.error as Error).message}
               </span>
             )}
+            {priorText !== null && (
+              <>
+                <button
+                  onClick={() => setShowDiff((v) => !v)}
+                  className="ml-auto rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50"
+                >
+                  {showDiff ? "Hide diff" : "Show diff"}
+                </button>
+                <button
+                  onClick={() => setPriorText(null)}
+                  className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50"
+                  title="Dismiss the diff and accept the new OCR text"
+                >
+                  Accept
+                </button>
+              </>
+            )}
           </div>
+          {priorText !== null && showDiff && (
+            <div className="mt-2">
+              <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
+                <span>Re-OCR diff (prior → new)</span>
+                {!diffHasChanges && (
+                  <span className="italic">
+                    no changes — re-OCR returned identical text
+                  </span>
+                )}
+              </div>
+              {diffHasChanges && <LineDiffView diff={diff} />}
+            </div>
+          )}
         </div>
       </div>
     </section>
