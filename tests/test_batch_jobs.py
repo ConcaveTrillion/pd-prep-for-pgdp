@@ -65,7 +65,12 @@ class FakeBackend:
     async def run_ocr(self, req):  # pragma: no cover - not used here
         raise NotImplementedError
 
-    async def run_batch(self, items: list[BatchJobItem]) -> list[BatchJobResult]:
+    async def run_batch(
+        self,
+        items: list[BatchJobItem],
+        *,
+        progress_cb=None,
+    ) -> list[BatchJobResult]:
         self.received.append(list(items))
         return [
             BatchJobResult(

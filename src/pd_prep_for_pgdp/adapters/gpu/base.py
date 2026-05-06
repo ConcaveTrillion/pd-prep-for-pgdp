@@ -6,6 +6,7 @@ out-of-process (`modal`), and over HTTP (`shared_container`).
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
@@ -65,6 +66,16 @@ class BatchJobResult(BaseModel):
 # ─── Protocol ────────────────────────────────────────────────────────────────
 
 
+# Optional per-item progress callback for `run_batch`. Backends that can
+# stream per-item completion (CPU, eventually CUDA) call this after every
+# `BatchJobItem` settles; backends that only learn the outcome at the end
+# (Modal `.remote.aio()`, single-shot HTTP) accept and ignore it.
+#
+# Signature: cb(current, total, result) — `current` is the count of items
+# settled so far (1..total), `result` is the just-finished BatchJobResult.
+BatchProgressCb = Callable[[int, int, "BatchJobResult"], Awaitable[None]]
+
+
 class GPUBackend(Protocol):
     name: Literal["local", "cpu", "mps", "modal", "shared_container"]
 
@@ -72,4 +83,9 @@ class GPUBackend(Protocol):
 
     async def run_ocr(self, req: OcrPageRequest) -> OcrPageResponse: ...
 
-    async def run_batch(self, items: list[BatchJobItem]) -> list[BatchJobResult]: ...
+    async def run_batch(
+        self,
+        items: list[BatchJobItem],
+        *,
+        progress_cb: BatchProgressCb | None = None,
+    ) -> list[BatchJobResult]: ...

@@ -323,9 +323,7 @@ async def _handle_thumbnails(runner: InProcessJobRunner, job: Job) -> None:
         raise FileNotFoundError(f"project {job.project_id} not found")
 
     async def _report(current: int, total: int, stem: str) -> None:
-        await runner._update_progress(
-            job, current=current, total=total, message=f"thumbnail {stem}"
-        )
+        await runner._update_progress(job, current=current, total=total, message=f"thumbnail {stem}")
 
     result = await generate_thumbnails(
         project=project,
@@ -478,7 +476,32 @@ async def _run_batch_pages(runner: InProcessJobRunner, job: Job, *, job_type: st
         return
 
     # Local / self-hosted: run inline.
-    results = await runner._gpu.run_batch(items)
+    # Per-item progress: emit a "page N of M" event after each item so the
+    # workbench / RunPipelinePanel can show real-time progress instead of a
+    # single `running -> complete` flip. `current_page` carries the just-
+    # finished idx0 so the SPA can highlight the active row.
+    ok_running = 0
+    err_running = 0
+
+    async def _report(current: int, total: int, result: BatchJobResult) -> None:
+        nonlocal ok_running, err_running
+        if result.ok:
+            ok_running += 1
+        else:
+            err_running += 1
+        progress = job.progress.model_copy(
+            update={
+                "current": current,
+                "total": total,
+                "current_page": result.idx0,
+                "message": f"ok={ok_running} err={err_running}",
+            }
+        )
+        snapshot = job.model_copy(update={"progress": progress})
+        await runner._db.put_job(snapshot)
+        await runner._emit(snapshot)
+
+    results = await runner._gpu.run_batch(items, progress_cb=_report)
     ok_count = sum(1 for r in results if r.ok)
     err_count = len(results) - ok_count
     # `_update_progress` returns the new pydantic copy. Use IT as the basis

@@ -27,6 +27,7 @@ from ...core.queue.single_executor import Priority, SingleExecutor
 from .base import (
     BatchJobItem,
     BatchJobResult,
+    BatchProgressCb,
     GPUBackend,
     OcrPageRequest,
     OcrPageResponse,
@@ -140,14 +141,24 @@ class CpuBackend(GPUBackend):
 
         return OcrPageResponse(text=text, words=words, text_key=text_key)
 
-    async def run_batch(self, items: list[BatchJobItem]) -> list[BatchJobResult]:
+    async def run_batch(
+        self,
+        items: list[BatchJobItem],
+        *,
+        progress_cb: BatchProgressCb | None = None,
+    ) -> list[BatchJobResult]:
         """Run a batch of jobs sequentially.
 
         CPU mode trades parallelism for simplicity — the pages are processed
         in order. The dispatcher is responsible for chunking; this method
         executes whatever it gets.
+
+        When `progress_cb` is supplied, it is invoked after every item with
+        `(current, total, result)` so callers can stream per-item progress
+        events (the runner uses this for the JobEventBroker fan-out).
         """
         out: list[BatchJobResult] = []
+        total = len(items)
         for item in items:
             try:
                 if item.job_type == "batch_process_pages":
@@ -204,6 +215,12 @@ class CpuBackend(GPUBackend):
                         error=str(e),
                     )
                 )
+            if progress_cb is not None:
+                # Fire-and-tolerate: a busted callback shouldn't abort the batch.
+                try:
+                    await progress_cb(len(out), total, out[-1])
+                except Exception:
+                    log.exception("run_batch progress_cb raised (item idx0=%s); continuing", item.idx0)
             await asyncio.sleep(0)  # yield to other tasks
         return out
 
