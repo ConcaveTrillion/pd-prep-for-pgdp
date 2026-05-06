@@ -32,12 +32,12 @@ so treat 00–09 as canonical and the proposal as historical context.
 
 ```sh
 cd /workspaces/ocr-container/pd-prep-for-pgdp
-PYTHONPATH=src /workspaces/ocr-container/.venv/bin/python -m pytest tests/ -q
+make test    # canonical — `uv run pytest tests/ -v --ignore=tests/e2e`
+make e2e     # Playwright e2e suite (separate uv group)
 ```
 
-The parent `.venv` already has fastapi, pydantic, uvicorn, httpx, pytest,
-pd-book-tools, plus pydantic-settings, sse-starlette, and pytest-asyncio.
-For a fresh `make setup` flow, the project gets its own `.venv/` via uv.
+The project has its own `.venv/` (provisioned by `make setup` via `uv`).
+Targeted runs: `uv run pytest -k <pattern>`. Prefer Make targets.
 
 ## Run the app
 
@@ -71,9 +71,7 @@ make frontend-build && uv run pgdp-prep
 
 ## Decisions
 
-- Repo is **not yet a git repo** (decision logged in iteration 1).
-  `git init` + remote is the user's call.
-- `pd-book-tools` is pinned to `v0.7.3` in `pyproject.toml`. Upgrade with
+- `pd-book-tools` is pinned to `v0.9.0` in `pyproject.toml`. Upgrade with
   `make upgrade-pd-book-tools`.
 - `gpu_backend="cpu"` is the test default. `LocalBackend`/`ModalBackend` etc.
   exist as classes but raise `NotImplementedError` until called with real
