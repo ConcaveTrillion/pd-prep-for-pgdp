@@ -76,6 +76,14 @@ packages = ["src/pd_prep_for_pgdp"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/pd_prep_for_pgdp/static" = "pd_prep_for_pgdp/static"
 
+# Local guard mirroring the CI check in `.github/workflows/release.yml`:
+# fail `uv build` / `hatch build` if the SPA bundle is missing, so the
+# wheel can never be published with a blank `static/`. See
+# `build_hooks/spa_check.py` for the rationale and roadmap §22 for the
+# CI-side counterpart.
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "build_hooks/spa_check.py"
+
 [tool.ruff]
 line-length = 110
 target-version = "py313"

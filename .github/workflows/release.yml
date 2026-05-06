@@ -2,10 +2,13 @@ name: release
 
 # Triggers:
 #  - push to main: lint + tests + build sanity-check (no publish).
-#  - tag push (v*): same + build container + publish artefacts.
+#  - tag push (v*): same + build container + attach wheel to GitHub Release.
 #
-# This workflow follows spec 09 §"CI/CD". `install.sh` resolves the latest
-# GitHub tag and runs `uv tool install` against it — there's no PyPI publish.
+# This workflow follows spec 09 §"CI/CD". On tag push, the `build-wheel`
+# job uploads the built wheel as an asset on the GitHub Release for that
+# tag; `install.sh` downloads that wheel asset directly (no `git+` install,
+# so end users don't need Node/npm to build the SPA). There's no PyPI
+# publish.
 
 on:
   push:
@@ -21,6 +24,7 @@ jobs:
   test:
     name: pytest + ruff
     runs-on: ubuntu-latest
+    needs: [build-frontend]
     env:
       # Pin Python 3.13 — uv would otherwise pick up the newest matching
       # `requires-python` (3.14), which segfaults on TestClient teardown
@@ -38,6 +42,16 @@ jobs:
         run: uv run ruff check
       - name: Format check
         run: uv run ruff format --check
+      # Roadmap §22: the SPA fallback tests in tests/test_spa_fallback.py
+      # skip themselves when src/pd_prep_for_pgdp/static/index.html is missing.
+      # Without this download they were silently skipping in CI. Pulling the
+      # already-built bundle from the build-frontend job forces them to run.
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: src/pd_prep_for_pgdp/static/
+      - name: Verify SPA bundle present (roadmap §22)
+        run: test -f src/pd_prep_for_pgdp/static/index.html
       - name: Tests
         run: uv run pytest tests/ -v
 
@@ -68,6 +82,11 @@ jobs:
     name: build wheel
     runs-on: ubuntu-latest
     needs: [test, build-frontend]
+    # Tag pushes attach the wheel to the GitHub Release; non-tag pushes
+    # only need to read the repo. `contents: write` is gated on the tag
+    # condition by `softprops/action-gh-release` itself (`if:` below).
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -77,13 +96,53 @@ jobs:
         with:
           name: frontend-dist
           path: src/pd_prep_for_pgdp/static/
+      # `--wheel` skips the sdist step. Default `uv build` produces an sdist
+      # *and* rebuilds the wheel from inside the unpacked sdist; that fails
+      # because src/pd_prep_for_pgdp/static/ is .gitignore'd, so the sdist
+      # omits the SPA, and the wheel-from-sdist build trips the SPA-bundle
+      # guard in build_hooks/spa_check.py. The downloaded `frontend-dist`
+      # artifact above places the SPA at src/pd_prep_for_pgdp/static/, and
+      # `--wheel` consumes it directly.
       - name: Build
-        run: uv build
+        run: uv build --wheel
+      # Roadmap §22: assert the SPA bundle is actually inside the wheel.
+      # Catches the "wheel built without `make frontend-build`" case so a
+      # broken (blank-page) wheel never escapes CI.
+      - name: Verify wheel contains SPA bundle (roadmap §22)
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          if [ ${#wheels[@]} -eq 0 ]; then
+            echo "::error::no wheel produced under dist/"
+            exit 1
+          fi
+          for whl in "${wheels[@]}"; do
+            echo "checking $whl"
+            if ! python -m zipfile -l "$whl" | grep -q 'pd_prep_for_pgdp/static/index\.html'; then
+              echo "::error::$whl is missing pd_prep_for_pgdp/static/index.html — run 'make frontend-build' before building"
+              python -m zipfile -l "$whl"
+              exit 1
+            fi
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: wheel
           path: dist/
           retention-days: 7
+      # Tag-push only: attach the built wheel to the GitHub Release for the
+      # tag that triggered the workflow. install.sh downloads the wheel from
+      # this Release so end users don't need Node/npm to build the SPA. If
+      # the Release for this tag doesn't already exist, this action creates
+      # it. The asset filename is hatch-vcs derived
+      # (pd_prep_for_pgdp-<version>-py3-none-any.whl).
+      - name: Publish wheel to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: dist/*.whl
+          fail_on_unmatched_files: true
 
   build-container:
     name: build managed-mode container

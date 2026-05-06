@@ -34,6 +34,12 @@ setup: ## Sync deps + install pre-commit hooks + refresh version
 
 refresh-version: ## Force hatch-vcs to re-derive `pgdp-prep --version` from current git state
 	@echo "🔄 Reinstalling pd-prep-for-pgdp so hatch-vcs picks up the current HEAD / tags..."
+	@# Hatchling's `force-include` of src/pd_prep_for_pgdp/static refuses to
+	@# resolve when the directory is missing (FileNotFoundError during the
+	@# editable build), so make sure it exists before the editable install.
+	@# The wheel-side SPA check (build_hooks/spa_check.py) still gates real
+	@# wheel builds on the bundled index.html being present.
+	@mkdir -p src/pd_prep_for_pgdp/static
 	@UV_LINK_MODE=copy uv pip install -e . --reinstall-package pd-prep-for-pgdp
 	@uv run pgdp-prep --version || true
 
@@ -206,7 +212,13 @@ e2e: frontend-build ## Run Playwright E2E tests (requires `playwright install ch
 	uv run --group e2e pytest tests/e2e -v
 
 build: frontend-build ## Build the wheel (with frontend bundled)
-	uv build
+	# `--wheel` skips the sdist step. The build hook in
+	# build_hooks/spa_check.py refuses to build a wheel without
+	# src/pd_prep_for_pgdp/static/index.html, and that directory is
+	# .gitignore'd — so the default `uv build` (sdist → wheel-from-sdist)
+	# fails because the unpacked sdist has no SPA. Wheel-only is the
+	# supported path; CI mirrors this in .github/workflows/release.yml.
+	uv build --wheel
 
 clean: ## Clean cache + build artifacts
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true

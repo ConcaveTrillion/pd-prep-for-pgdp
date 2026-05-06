@@ -24,7 +24,8 @@ pgdp-prep
 The installer:
 - installs `uv` if missing,
 - detects an NVIDIA GPU via `nvidia-smi` and picks the matching PyTorch wheel,
-- resolves the latest GitHub tag and runs `uv tool install`,
+- resolves the latest GitHub tag, downloads the prebuilt wheel attached to
+  that release, and runs `uv tool install` against it,
 - starts a single FastAPI process on port `8765` and opens a browser tab.
 
 No AWS, no Docker, no PyPI publish step. **End users do not need Node, npm,

@@ -12,13 +12,23 @@ curl -sSL https://raw.githubusercontent.com/ConcaveTrillion/pd-prep-for-pgdp/mai
 pgdp-prep
 ```
 
-`install.sh` (mirrors `pd-ocr-cli/install.sh`):
+`install.sh`:
 
 1. Install `uv` if missing.
 2. Detect NVIDIA via `nvidia-smi`; if found, set `EXTRA_INDEX` to the right
    PyTorch CUDA wheel index and add the `[cuda]` extra.
 3. Resolve the latest GitHub tag from the `tags` API.
-4. `uv tool install --reinstall git+https://github.com/.../pd-prep-for-pgdp[@tag][cuda]`.
+4. Look up the GitHub Release for that tag, find the `.whl` asset attached
+   to it (uploaded by `.github/workflows/release.yml`), download it to a
+   temp dir.
+5. `uv tool install --reinstall <wheel-path>[cuda]`.
+
+Step 4 is what removes the historical Node/npm requirement: the wheel
+already contains the built React SPA, so the user never builds the
+frontend. If the release has no wheel asset (workflow failure, or an old
+tag from before this was wired up), install.sh hard-fails with a pointer
+to the release URL rather than silently falling back to a `git+...`
+install (which would require Node).
 
 Defaults at startup (no env vars set):
 
@@ -90,7 +100,7 @@ GPU charges are ~$2/book; rest is Fargate (~$10) + Aurora (~$45) + S3 (~$5).
 |---|---|---|
 | `test` | every push | uv sync + ruff + pytest |
 | `build-frontend` | every push | npm install + `vite build`; uploads `dist/` |
-| `build-wheel` | every push (after test + build-frontend) | uv build with frontend bundled into the wheel |
+| `build-wheel` | every push (after test + build-frontend) | `uv build --wheel` with frontend bundled into the wheel; on tag push, attaches the wheel to the GitHub Release |
 | `build-container` | tag push only | docker build (no push wired up — user's ECR config) |
 
 ## Frontend bundling
