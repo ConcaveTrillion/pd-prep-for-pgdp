@@ -681,6 +681,44 @@ For very large books (>500 pages), let the user search the OCR text. Needs
 a `pages.ocr_text` index column or full-text search. SQLite FTS5 is fine
 for local; Postgres has built-in TS.
 
+### 13a. Adopt shadcn/ui + Radix and close the spec/code divergence
+
+`specs/00-overview.md:57,126` and `specs/03-ui-layout.md:5,404` name
+shadcn/ui (Radix-backed) as the intended component library, but the SPA
+ships hand-rolled Tailwind on raw HTML — there's no `frontend/src/components/ui/`,
+no `@radix-ui/*` deps in `frontend/package.json`, and the lone component is
+`WordBboxOverlay`. The "modal" in `ProjectListPage.tsx:106-168` is a raw
+`<div>` overlay with no focus trap, no Escape binding, no scroll lock,
+and Cancel/Create buttons that aren't a real `<dialog>`. There is no
+toast layer at all — `TextReviewPage.tsx:494-507` inlines three separate
+`<span class="text-xs text-red-600">` paragraphs for save / re-OCR /
+delete failures, which is the only feedback path the user gets.
+
+Future improvement, no prescribed milestone:
+
+1. **shadcn/ui + Radix primitives** for `Dialog`, `AlertDialog`, `Toast`,
+   `Tabs`, `Select`, `Popover`, `Tooltip`. Closes the
+   spec/code divergence and gets focus management, Escape, scroll lock,
+   and ARIA roles for free.
+2. **`sonner`** as the toast surface (one provider at the app root,
+   replace inline error spans in `TextReviewPage.tsx:494-507` and the
+   ad-hoc `step.kind === "error"` block in `ProjectListPage.tsx:161-165`
+   with `toast.error(...)`).
+3. **`react-hotkeys-hook`** for keyboard shortcuts. Today the
+   Delete/Backspace/Escape handler in `TextReviewPage.tsx` is a raw
+   `window.addEventListener("keydown", ...)` with hand-written
+   scope checks against `tagName` and `contentEditable` (tick 22 / 24);
+   a hook layer would fold that into a reusable scope and leave room
+   for Prev/Next-page bindings on `PageWorkbenchPage`.
+4. **`vite-tsconfig-paths`** + `tsconfig` `paths` aliases so imports
+   become `@/components/...`, `@/api/client`, `@/lib/marquee` instead
+   of `../../api/client` chains. Cosmetic, but pays off as the
+   component tree deepens.
+
+Cost is mostly mechanical (install + replace), spread across many
+files. Worth pairing with whichever P2 item next touches the modal
+or the toolbar.
+
 ---
 
 ## P3 — Pipeline depth
