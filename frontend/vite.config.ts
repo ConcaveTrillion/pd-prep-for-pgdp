@@ -3,6 +3,11 @@ import react from "@vitejs/plugin-react";
 
 // FastAPI proxies /api/* during `npm run dev`. The dev server runs on :5173;
 // the user starts FastAPI separately with `pgdp-prep --frontend-dev http://localhost:5173`.
+//
+// Vitest configuration lives in `vitest.config.ts` (sibling) rather than
+// inline here — vitest 2.x bundles its own Vite which conflicts with the
+// project's Vite 6 type-wise. The runtime is fine, but tsc -b chokes; a
+// separate file sidesteps the type collision cleanly.
 export default defineConfig({
   plugins: [react()],
   server: {

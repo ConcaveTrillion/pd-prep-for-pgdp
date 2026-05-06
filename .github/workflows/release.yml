@@ -54,6 +54,8 @@ jobs:
           # Re-enable once the lockfile is committed.
       - name: npm install
         run: cd frontend && npm install
+      - name: Vitest (SPA unit tests)
+        run: cd frontend && npm test
       - name: Build
         run: cd frontend && npm run build
       - uses: actions/upload-artifact@v4

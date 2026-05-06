@@ -1,9 +1,9 @@
 .PHONY: help setup refresh-version install uninstall reset remove-venv lint format \
         pre-commit-check test e2e build clean ci local-setup dev-local install-local \
         uninstall-local check-local-editable run-local frontend-install frontend-build \
-        frontend-dev openapi-export upgrade-pd-book-tools release-patch release-minor \
-        release-major _do-release docker-build docker-run mise-download mise-setup \
-        mise-doctor
+        frontend-dev frontend-test openapi-export upgrade-pd-book-tools release-patch \
+        release-minor release-major _do-release docker-build docker-run mise-download \
+        mise-setup mise-doctor
 
 # ---------------------------------------------------------------------------
 # Peer-repo discovery for *-local targets
@@ -168,6 +168,11 @@ frontend-dev: ## Run Vite dev server (frontend only)
 	@$(call _npm,install)
 	@$(call _npm,run dev)
 
+frontend-test: ## Run the SPA's vitest suite (jsdom + msw)
+	@echo "🧪 Running frontend (vitest) tests..."
+	@$(call _npm,install)
+	@$(call _npm,test)
+
 openapi-export: ## Regenerate frontend/src/api/types.ts from /openapi.json
 	@echo "📤 Exporting OpenAPI schema and regenerating TS types..."
 	uv run python -c "import json, sys; from pd_prep_for_pgdp.bootstrap import build_app; \
@@ -210,7 +215,7 @@ clean: ## Clean cache + build artifacts
 	find . -type d -name ".ruff_cache" -exec rm -rf {} + 2>/dev/null || true
 	rm -rf dist/ src/pd_prep_for_pgdp/static/ frontend/dist/ 2>/dev/null || true
 
-ci: setup pre-commit-check test build ## Full CI pipeline
+ci: setup pre-commit-check test frontend-test build ## Full CI pipeline
 
 # ---------------------------------------------------------------------------
 # Local editable workflow (requires ../pd-book-tools sibling checkout)
