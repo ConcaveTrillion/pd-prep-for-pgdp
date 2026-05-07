@@ -85,6 +85,59 @@ function makeProject(overrides: Partial<Project> = {}): Project {
   };
 }
 
+describe("ProjectListPage CreateProjectModal a11y", () => {
+  it("renders as a labelled modal dialog with body scroll lock while open", async () => {
+    server.use(http.get("/api/data/projects", () => HttpResponse.json([])));
+
+    renderWithProviders(<ProjectListPage />);
+
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", { name: /new project/i }),
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: /new project/i });
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    // Scroll-lock pinned to <body> while modal is open so background
+    // doesn't scroll under the dialog.
+    expect(document.body.style.overflow).toBe("hidden");
+  });
+
+  it("closes when the user presses Escape and restores body overflow", async () => {
+    server.use(http.get("/api/data/projects", () => HttpResponse.json([])));
+
+    renderWithProviders(<ProjectListPage />);
+
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", { name: /new project/i }),
+    );
+
+    await screen.findByRole("dialog", { name: /new project/i });
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.body.style.overflow).toBe("");
+  });
+
+  it("focuses the first interactive control on open", async () => {
+    server.use(http.get("/api/data/projects", () => HttpResponse.json([])));
+
+    renderWithProviders(<ProjectListPage />);
+
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", { name: /new project/i }),
+    );
+
+    await screen.findByRole("dialog", { name: /new project/i });
+    // The book-name input is the first focusable control inside the
+    // dialog, so the focus-trap initial-focus pass should land there.
+    const nameInput = screen.getByPlaceholderText(/Belloc/i);
+    expect(document.activeElement).toBe(nameInput);
+  });
+});
+
 describe("ProjectListPage create-project flow", () => {
   it("submits the name + zip upload and POSTs CreateProjectRequest with source_type=zip", async () => {
     const createCalls: CreateProjectRequest[] = [];

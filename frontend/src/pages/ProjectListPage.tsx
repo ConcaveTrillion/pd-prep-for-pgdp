@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import type { components } from "../api/types.gen";
@@ -66,6 +66,37 @@ function CreateProjectModal({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [step, setStep] = useState<Step>({ kind: "form" });
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = "create-project-modal-title";
+
+  // a11y: scroll-lock the body while the dialog is open + Escape-to-close.
+  // No external focus-trap library yet (§13a will swap to Radix Dialog
+  // which gives this for free); the manual setup here is the local-mode
+  // baseline and exists primarily so keyboard users aren't stranded.
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+
+    // Initial focus: first focusable control inside the dialog, so
+    // keyboard users don't have to Tab in from outside.
+    const focusables = dialogRef.current?.querySelectorAll<HTMLElement>(
+      'input, button, select, textarea, [tabindex]:not([tabindex="-1"])',
+    );
+    focusables?.[0]?.focus();
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose]);
 
   const createMut = useMutation({
     mutationFn: async () => {
@@ -111,10 +142,16 @@ function CreateProjectModal({ onClose }: { onClose: () => void }) {
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className="w-full max-w-md space-y-4 rounded-lg bg-white p-6 shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-lg font-semibold">New project</h2>
+        <h2 id={titleId} className="text-lg font-semibold">
+          New project
+        </h2>
 
         {step.kind === "form" && (
           <>
