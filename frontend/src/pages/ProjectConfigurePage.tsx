@@ -10,15 +10,15 @@ import { api } from "../api/client";
 import { SourcePreview } from "../components/SourcePreview";
 import { useActiveBatchJob } from "../hooks/useActiveBatchJob";
 import { useJobProgress } from "../hooks/useJobProgress";
-import type {
-  AlignmentOverride,
-  ListPagesResponse,
-  PageRecord,
-  PageType,
-  Project,
-  ProjectConfig,
-  UpdatePageRequest,
-} from "../api/types";
+import type { components } from "../api/types.gen";
+
+type AlignmentOverride = components["schemas"]["AlignmentOverride"];
+type ListPagesResponse = components["schemas"]["ListPagesResponse"];
+type PageRecord = components["schemas"]["PageRecord"];
+type PageType = components["schemas"]["PageType"];
+type Project = components["schemas"]["Project"];
+type ProjectConfig = components["schemas"]["ProjectConfig"];
+type UpdatePageRequest = components["schemas"]["UpdatePageRequest"];
 
 const PAGE_TYPE_BADGE: Record<PageType, { label: string; cls: string } | null> = {
   normal: null,
