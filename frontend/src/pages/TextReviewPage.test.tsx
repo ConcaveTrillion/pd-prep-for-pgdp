@@ -32,7 +32,9 @@ import { http, HttpResponse } from "msw";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { ReactElement, ReactNode } from "react";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import type { PageRecord } from "../api/types";
+import type { components } from "../api/types.gen";
+
+type PageRecord = components["schemas"]["PageRecord"];
 import { server } from "../test/server";
 import { TextReviewPage } from "./TextReviewPage";
 
@@ -91,7 +93,24 @@ function makePage(overrides: Partial<PageRecord> = {}): PageRecord {
     ignore: false,
     page_type: "normal",
     alignment: "default",
-    config_overrides: {},
+    config_overrides: {
+      // PageConfigOverrides-Output is "all fields required, defaults serialized
+      // explicitly". Server emits each field; the test fixture must too.
+      initial_crop: null,
+      white_space_additional: null,
+      threshold_level: null,
+      fuzzy_pct: null,
+      pixel_count_columns: null,
+      pixel_count_rows: null,
+      skip_auto_deskew: null,
+      deskew_before_crop: null,
+      deskew_after_crop: null,
+      do_morph: null,
+      skip_denoise: null,
+      use_ocr_bbox_edge: null,
+      rotated_standard: null,
+      single_dimension_rescale: null,
+    },
     splits: [],
     illustration_regions: [],
     source_key: "projects/prj_abc/source/0001.jpg",
@@ -101,6 +120,8 @@ function makePage(overrides: Partial<PageRecord> = {}): PageRecord {
     processing_status: "complete",
     processing_job_id: null,
     processing_error: null,
+    last_processed_at: null,
+    outputs: [],
     ...overrides,
   };
 }

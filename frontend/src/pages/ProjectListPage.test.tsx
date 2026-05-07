@@ -20,11 +20,11 @@ import { http, HttpResponse } from "msw";
 import { MemoryRouter } from "react-router-dom";
 import type { ReactElement } from "react";
 import { describe, expect, it } from "vitest";
-import type {
-  CreateProjectRequest,
-  CreateProjectResponse,
-  Project,
-} from "../api/types";
+import type { components } from "../api/types.gen";
+
+type CreateProjectRequest = components["schemas"]["CreateProjectRequest"];
+type CreateProjectResponse = components["schemas"]["CreateProjectResponse"];
+type Project = components["schemas"]["Project"];
 import { server } from "../test/server";
 import { ProjectListPage } from "./ProjectListPage";
 
@@ -57,6 +57,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     proof_page_count: 0,
     storage_prefix: "projects/prj_abc123",
     archived: false,
+    pipeline_state: { steps: {} },
     config: {
       book_name: "Belloc — The Four Men",
       source_uri: "uploads/prj_abc123/source.zip",
