@@ -41,15 +41,21 @@ an individually runnable, individually inspectable stage with dirty
 propagation across a DAG. The spec proposes a `page_stages` table,
 per-stage artifact storage, and a workbench artifact viewer.
 
-**Decisions needed before M1** (see spec §"Open questions"):
+**Decisions Q1–Q7 — Locked (2026-05-07).** See spec §"Open questions —
+Locked (2026-05-07)" for the full table; in summary:
 
-+ Q1 — `page_stages` table vs JSON-on-`pages.body`. _Recommended: table._
-+ Q2 — eager vs lazy dirty propagation. _Recommended: eager._
-+ Q3 — checkpoint-only vs every-intermediate artifact persistence. _Recommended: checkpoints with debug switch._
-+ Q4 — manual `stage_version` registry vs auto-hash. _Recommended: manual in M2._
-+ Q5 — collapse `LocalBackend` to a device-chooser. _Recommended yes, in M2._
-+ Q6 — splits as config to `ocr_crop` vs first-class DAG nodes. _Recommended: config-only for M2._
-+ Q7 — `text_review` as a stage with `clean` = "user marked reviewed". _Recommended: yes, gate `build_package` on it later._
++ Q1 → normalised `page_stages` SQLite table.
++ Q2 → eager dirty propagation.
++ Q3 → checkpoint-only artifact persistence + `PGDP_FULL_STAGE_ARTIFACTS=1`
+  debug switch (M1 must not preclude; switch may land in M2).
++ Q4 → manual `stage_version` registry in M2.
++ Q5 → `STAGE_IMPL[stage_id][device]` registry; LocalBackend becomes a
+  device-chooser, in M2.
++ Q6 → splits stay as configuration to `ocr_crop` (no new DAG nodes) in M2.
++ Q7 → `text_review` modelled as a gate stage; `build_package` gates on
+  `require_text_review` (default off in M2).
+
+M1 is unblocked.
 
 **Milestones:**
 

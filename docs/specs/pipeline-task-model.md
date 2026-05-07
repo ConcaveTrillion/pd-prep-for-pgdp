@@ -475,10 +475,25 @@ users who want to forcibly rebuild — opt-in, never automatic.
 
 ---
 
-## Open questions (decisions needed before M1)
+## Open questions — Locked (2026-05-07)
 
-These are the design forks the user should weigh in on. Recommendations
-are present but not locked.
+The seven open questions below are **locked** as of 2026-05-07; the
+spec's recommendations are now the canonical decisions. Implementation
+proceeds against these defaults. If a locked decision turns out to be
+materially worse than its alternative during implementation, surface
+it for re-evaluation rather than silently flipping.
+
+| # | Decision | Lock |
+|---|---|---|
+| Q1 | Stage-state persistence | Normalised `page_stages` SQLite table (not JSON-on-`pages.body`). |
+| Q2 | Dirty propagation | Eager — UPDATE all downstream rows to `dirty` at write time. |
+| Q3 | Artifact storage | Checkpoint stages only; `PGDP_FULL_STAGE_ARTIFACTS=1` env switch enables full-intermediate persistence for debugging (switch may land in M2; M1 only must not preclude it). |
+| Q4 | Stage versioning | Manual `stage_version` registry (`STAGE_VERSIONS = {...}`), bumped by hand when a stage's algorithm changes. Lands in M2. Auto-derive deferred. |
+| Q5 | LocalBackend collapse | `STAGE_IMPL[stage_id][device]` registry; `LocalBackend` becomes a device-chooser (cuda where available, else cpu). Lands in M2. |
+| Q6 | Splits in the DAG | Splits remain configuration to `ocr_crop`, not first-class DAG nodes. Per-split rerun granularity revisited only if proofers ask. Lands in M2. |
+| Q7 | `text_review` as a stage | Yes — gate stage with `not-run` = unreviewed, `clean` = user-attested. `build_package` gates on it via `require_text_review` (default off in M2). |
+
+The original recommendation rationale follows for context:
 
 ### Q1. Stage-state persistence: extend `Page` body vs. new `page_stages` table
 

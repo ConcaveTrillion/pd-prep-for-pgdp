@@ -78,8 +78,8 @@ uv run pgdp-prep --reload --frontend-dev http://localhost:5173   # other termina
   milestones M1–M6 in `docs/08-roadmap.md` §P0.5. New pipeline work
   follows that model — do not add new sub-steps inside
   `core/pipeline/process_page.py`'s monolithic body, and do not add
-  new `JobType.batch_*` values. Open questions Q1–Q7 in the spec block
-  M1; surface them to the user before picking up the milestone.
+  new `JobType.batch_*` values. Open questions Q1–Q7 are **locked
+  (2026-05-07)** per the spec's "Open questions — Locked" table.
 - **Local-first priority (2026-05-07):** active work targets the local
   solo / self-hosted-team flow (SQLite + filesystem + CPU). Cloud /
   remote-mode prerequisites (Postgres adapter live tests, Modal-side
