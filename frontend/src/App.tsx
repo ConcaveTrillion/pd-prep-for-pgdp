@@ -9,6 +9,7 @@ import {
 } from "react-router-dom";
 import { api, getAuthToken, setAuthToken } from "./api/client";
 import { ProfileDropdown } from "./components/ProfileDropdown";
+import { ServerInfoFooter } from "./components/ServerInfoFooter";
 import { JobsPage } from "./pages/JobsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ProjectListPage } from "./pages/ProjectListPage";
@@ -64,6 +65,8 @@ export default function App() {
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </main>
+
+      <ServerInfoFooter />
     </div>
   );
 }
