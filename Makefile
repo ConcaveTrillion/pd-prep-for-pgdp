@@ -186,19 +186,22 @@ frontend-test: ## Run the SPA's vitest suite (jsdom + msw)
 	@$(call _npm,install)
 	@$(call _npm,test)
 
-openapi-export: ## Regenerate frontend/src/api/types.ts from /openapi.json
+openapi-export: ## Regenerate openapi.json + frontend/src/api/types.gen.ts
 	@echo "📤 Exporting OpenAPI schema and regenerating TS types..."
 	# Write to repo-root openapi.json — the committed source-of-truth that
 	# tests/test_openapi_spec_committed.py drift-guards against. The frontend
-	# `openapi:gen` script reads `../openapi.json` (see frontend/package.json),
-	# so a single repo-root spec serves both the drift guard and TS codegen.
+	# `openapi:gen` script reads `../openapi.json` (see frontend/package.json).
+	#
+	# Codegen lands in `types.gen.ts`, *not* the hand-written `types.ts`.
+	# SPA consumers still import from `types.ts`; the generated file exists
+	# so we can audit the diff and migrate surfaces deliberately (P4 #20).
 	uv run python scripts/export_openapi.py openapi.json
 	@if $(HAVE_MISE); then \
-		cd frontend && $(MISE) exec -- npx --yes openapi-typescript ../openapi.json -o src/api/types.ts; \
+		cd frontend && $(MISE) exec -- npx --yes openapi-typescript ../openapi.json -o src/api/types.gen.ts; \
 	else \
-		cd frontend && npx --yes openapi-typescript ../openapi.json -o src/api/types.ts; \
+		cd frontend && npx --yes openapi-typescript ../openapi.json -o src/api/types.gen.ts; \
 	fi
-	@echo "✅ frontend/src/api/types.ts regenerated."
+	@echo "✅ frontend/src/api/types.gen.ts regenerated."
 
 # ---------------------------------------------------------------------------
 # Lint / format / test / build

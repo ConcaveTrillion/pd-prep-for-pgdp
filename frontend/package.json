@@ -11,7 +11,7 @@
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
-    "openapi:gen": "openapi-typescript ../openapi.json -o src/api/types.ts"
+    "openapi:gen": "openapi-typescript ../openapi.json -o src/api/types.gen.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.59.0",
