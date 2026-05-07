@@ -1,10 +1,13 @@
 # 08 — Roadmap
 
-The build has moved through 22 iterations. Each iteration was small, TDD-led
-where possible, and ended with a green test suite. (A `project_state.md`
-under `~/.claude/projects/.../memory/` was previously the per-iteration
-log; that file is no longer maintained — this document is now the single
-source of truth for forward planning.)
+> Shipped items live in `08-roadmap-shipped.md` — kept out of this file
+> so the active roadmap stays focused on open work.
+
+The build has moved through 22+ iterations. Each iteration was small,
+TDD-led where possible, and ended with a green test suite. (A
+`project_state.md` under `~/.claude/projects/.../memory/` was previously
+the per-iteration log; that file is no longer maintained — this document
+is now the single source of truth for forward planning.)
 
 This roadmap is the **forward** view, organised by priority.
 
@@ -62,175 +65,6 @@ push but doesn't push to a registry. User to wire ECR (or GHCR) credentials.
 ---
 
 ## P1 — UX completeness
-
-### 5. Per-page batch_process_pages progress — done
-
-Backend SSE streams `current_page=idx0` per item (tested in
-`tests/test_batch_pages_progress.py`). Frontend surfaces it across four
-places: `JobProgressInline` ("· page N"), `PageGrid` active-tile sky ring +
-pulse, `PageWorkbenchPage` "Processing…" badge via `useJobProgress`, and
-`ProjectReviewQueuePage` via `useActiveBatchJob`. Shared status constants
-in `frontend/src/lib/jobStatus.ts` also wire `RunPipelinePanel`, the ingest
-banner, and the `JobsPage` "live: N" pill.
-
-### 6. OcrWord bbox highlight on TextReviewPage — done
-
-`wordOffsets.ts` (pure-function offset↔word index, iter 8), backend
-`<root>.words.json` sibling persistence with `words[]` returned on the
-text GET (iter 10), and a `WordBboxOverlay` Konva component on
-`TextReviewPage` (iter 11) wire bidirectional selection: clicking a
-word in the textarea highlights its bbox; clicking a bbox calls
-`setSelectionRange` on the textarea. Iter 12 polish: exact computed
-`line-height` for scroll-into-view (with `font-size × 1.2` fallback for
-`"normal"`) and a 75ms debounce on the textarea→bbox path so
-drag-selection doesn't thrash Konva re-renders.
-
-**Vitest coverage landed in tick 16.**
-`frontend/src/components/WordBboxOverlay.test.tsx` mounts the
-component with `react-konva` mocked to plain `<div>` placeholders
-(`Stage` / `Layer` / `Rect`) so the canvas substrate is sidestepped
-without pulling in the native `canvas` dep. Four tests, all green:
-(a) renders nothing when `words` is empty; (b) renders nothing when
-`naturalWidth`/`naturalHeight` are zero; (c) scaling math —
-natural 1000×1500 rendered into a 500×750 track element produces
-sx=sy=0.5, asserted via `data-x` / `data-y` / `data-width` /
-`data-height` on the mocked rects, plus the active-word stroke
-colour (`#2563eb` vs `#94a3b8`) to prove `activeWordIndex` reaches
-the correct rect; (d) clicking a rect dispatches `onWordClick(i)`
-with the right index. The track element is a `document.createElement`
-with a stubbed `getBoundingClientRect`, so the component's initial
-sync `update()` (which runs before `ResizeObserver` attaches) is
-sufficient to drive `size` non-zero; no observer-callback pumping
-needed. `ResizeObserver` itself is now globally stubbed in
-`frontend/src/test/setup.ts` (jsdom doesn't ship one) — `observe` /
-`unobserve` / `disconnect` are no-ops. Both `WordBboxOverlay` and
-`PageWorkbenchPage` need it, so the stub is a free win for any
-future component-mount test that touches a resize-tracking surface.
-`make frontend-test` runs **38 tests in ~1.2s**, all green
-(lineDiff 7, wordOffsets 12, client 3, pages 6, workbench 5,
-WordBboxOverlay 4, ProjectListPage 1).
-
-### 7. Per-page text diff after re-OCR — done
-
-Hand-rolled LCS line diff (`frontend/src/lib/lineDiff.ts`, six inline
-cases passing) plus a paired-row split-view renderer
-(`frontend/src/lib/lineDiff.tsx`) that pairs adjacent delete+insert
-into a single row for corrected-line readability. Wired into
-`TextReviewPage`: the `reocr` mutation's `onMutate` snapshots the
-current textarea text into `priorText`; the diff view appears
-inline below the textarea with Hide/Show and Accept controls. The
-snapshot is cleared on save success, on `reocr` error, and when
-the page identity (project / idx0 / split) changes so the diff
-never leaks across Prev/Next navigation. An identical re-OCR result
-is reported as "no changes — re-OCR returned identical text"
-instead of an empty diff.
-
-**Renderer Vitest coverage landed in tick 18.**
-`frontend/src/lib/lineDiff.view.test.tsx` mounts `LineDiffView`
-with hand-crafted `DiffLine[]` inputs (independent of the LCS pass,
-which is already covered in `lineDiff.test.ts`) and asserts the
-visible facts a regressor would actually break: (a) the "Prior" /
-"New" column headers render; (b) equal lines appear once per
-column, delete lines carry the `bg-red-50` tint, insert lines
-carry `bg-emerald-50`, and the literal text content lands in the
-DOM; (c) the pairing pass collapses adjacent delete+insert into a
-single row — a five-line mixed diff (equal, paired delete+insert,
-lone insert, lone delete) yields exactly two placeholder
-(`bg-slate-50/50`) cells, one for each unpaired side. Tailwind
-*layout* classes are intentionally out of scope so a styling
-refactor doesn't churn the test; only the colour classes that
-carry the equal/delete/insert semantics are pinned.
-`make frontend-test` runs **41 tests in ~1.4s**, all green
-(lineDiff 7, lineDiff.view 3, wordOffsets 12, client 3, pages 6,
-workbench 5, WordBboxOverlay 4, ProjectListPage 1).
-
-**Save-lifecycle mount test landed in tick 19.**
-`frontend/src/pages/TextReviewPage.test.tsx` mounts the page under
-`MemoryRouter` + `QueryClientProvider`, stubs `GET
-/api/data/projects/:id/pages/:idx0`, `GET .../text/_`, and `PATCH
-.../text` via msw, and asserts the load-edit-save chain end to
-end: textarea populates from the second query, the Save button is
-disabled in the "Saved" state, typing flips it to "Save" + enabled,
-clicking it sends `PATCH` with the right `{split_suffix, text}`
-body, and `onSuccess` flips the label back to "Saved". `react-konva`
-is mocked at module scope so the page's transitive
-`konva/index-node.js` → `require("canvas")` import doesn't fault in
-jsdom; the page never feeds `WordBboxOverlay` non-zero size (jsdom
-doesn't fire `<img>.onLoad`) so the overlay early-returns and the
-stubs never render. **TS5097 is closed:** `lineDiff.tsx` (which
-collided with `lineDiff.ts` at the bare module path) was renamed to
-`LineDiffView.tsx` and the two import sites
-(`TextReviewPage.tsx:8`, `lineDiff.view.test.tsx:19`) updated to
-the no-extension form. `npx tsc -b` no longer reports TS5097; only
-the pre-existing TS2352 errors in `workbench.test.ts` remain (a
-separate cleanup item, unrelated to this lifecycle).
-`make frontend-test` runs **42 tests in ~1.7s**, all green
-(lineDiff 7, lineDiff.view 3, wordOffsets 12, client 3, pages 6,
-workbench 5, WordBboxOverlay 4, ProjectListPage 1, TextReviewPage 1).
-
-**Re-OCR + diff lifecycle test landed in tick 20.** A second
-`it("re-OCRs and shows diff", ...)` block in
-`frontend/src/pages/TextReviewPage.test.tsx` reuses the existing
-msw + react-konva stub scaffold to drive the full re-OCR path:
-mounts the page, waits for the textarea to populate from
-`GET .../text/_`, clicks "Re-OCR this page", and asserts (a)
-`POST /api/gpu/run-ocr-page` fires with `{project_id, idx0,
-split_suffix}` (the empty `splitSuffix` serialises to `null`,
-matching `TextReviewPage.tsx:121`); (b) the textarea value is
-replaced with the response body's `text`; (c) the rendered
-`LineDiffView` shows the "Prior" / "New" column headers and both
-the deleted prior line and the inserted new line in the DOM. The
-fixture deliberately edits one of three lines (`alpha\nbeta\ngamma`
-→ `alpha\nBETA\ngamma`) so the LCS guarantees one paired
-delete+insert row plus two equal rows — no flaky reliance on
-incidental output. **§7 fully landed.** `make frontend-test` runs
-**43 tests in ~1.4s**, all green (lineDiff 7, lineDiff.view 3,
-wordOffsets 12, client 3, pages 6, workbench 5, WordBboxOverlay 4,
-ProjectListPage 1, TextReviewPage 2). **TS2352 cleanup also
-landed in tick 20:** the five `seenBody as object` /
-`seenBody as { ... }` casts in `frontend/src/api/workbench.test.ts`
-were collapsed to a single typed alias per test using
-`as unknown as { ... }` — runtime null-guard is invisible to tsc,
-so narrowing through `unknown` is the right move. `npx tsc -b` now
-exits clean (zero errors) for the first time since the test suite
-landed.
-
-### 8. Source preview before ingest
-
-In the create-project flow, after the zip is uploaded but before ingest
-runs, show a thumbnail strip of the first ~10 page images. Helps the user
-catch wrong-zip mistakes early.
-
-**Progress (2026-05-07):** pure helper `peek_zip_image_names(raw, limit)`
-landed in `core/ingest.py` with `tests/test_peek_zip_image_names.py`. Reads
-only the zip central directory (no payload decompression) and returns
-`(names, total_image_count)` so the preview can show "5 of 12".
-
-**Progress (2026-05-07, slice 2):** `GET /api/data/projects/{id}/source-preview`
-now exposes the helper over HTTP. Auth/ownership mirrors `assets.py`
-(collapse 403 → 404 to avoid leaking existence). Returns
-`SourcePreviewResponse {filenames, total_image_count}`; `?limit=` is honoured
-end-to-end. Coverage in `tests/test_source_preview_route.py`. OpenAPI
-spec re-exported (`tests/test_openapi_spec_committed.py` green); the new
-shape is also hand-added to `frontend/src/api/types.ts` since the
-generated-types swap is still deferred.
-
-**Progress (2026-05-07, slice 3):** `GET /api/data/projects/{id}/source-preview/{filename}/thumbnail`
-returns a JPEG blob for one named entry inside the project's source.zip.
-Auth/ownership identical to slice 2 (404 collapses 403); unknown filenames
-and non-image entries 404 via `extract_zip_image_thumbnail`'s
-`ZipImageEntryNotFound`. Lets the SPA render `<img>` tags directly without
-JSON-shape coupling.
-
-**Progress (2026-05-07, slice 4 — shipped):** `SourcePreview` React
-component (`frontend/src/components/SourcePreview.tsx`) consumes both
-the slice-2 JSON route and the slice-3 thumbnail route. Mounted inside
-the ProjectConfigurePage ingest-in-flight banner so the user sees the
-zip's contents while unzip + thumbnails run. Vitest coverage in
-`SourcePreview.test.tsx` covers happy path, URL-encoded filenames,
-upload-not-yet-landed (404) friendly placeholder, and loading state.
-Section 8 closed; remaining preview UX iteration (e.g. lightbox on
-click) deferred to user feedback.
 
 ### 9. Vitest + msw for the SPA — acceptance met, optional follow-ups remain
 
@@ -490,9 +324,9 @@ This item is deliberately a **strict subset** — delete only.
 
 **Prerequisites / dependencies:**
 
-- §6 (OcrWord bbox highlight — *done*) provides the `words[]` API
-  payload and the bidirectional textarea↔bbox selection plumbing
-  this feature builds on.
+- §6 (OcrWord bbox highlight — *shipped*, see `08-roadmap-shipped.md`)
+  provides the `words[]` API payload and the bidirectional
+  textarea↔bbox selection plumbing this feature builds on.
 - §9 (Vitest + msw — *ready*) should land first so the
   click-to-delete and undo behaviours can have unit + integration
   coverage from day one.
@@ -698,25 +532,6 @@ Currently `rotateEnabled=false`, `flipEnabled=false`. Spec 06 doesn't ask
 for them, but proofers occasionally need to fix scanner-frame skew that
 falls outside the auto-deskew range; expose rotate handles for the rare case.
 
-### 11. JWT login state in nav with profile dropdown
-
-**Status:** shipped. `frontend/src/components/ProfileDropdown.tsx` replaces
-the inline JWT branch of `AuthBadge` in `App.tsx`. The button label prefers
-the `email` claim and falls back to `sub`; the open menu surfaces the
-identity (email + sub when both present), token expiry as
-`YYYY-MM-DD HH:MM UTC` (or "no expiry"), and a Sign out menu item that
-calls back into the parent to clear `localStorage` + react-query cache and
-navigate to `/login`. Vitest coverage in
-`frontend/src/components/ProfileDropdown.test.tsx`. A "Refresh token"
-action is intentionally deferred — the `/api/auth/refresh` endpoint does
-not exist yet; revisit when the auth adapter grows refresh support.
-
-### 12. Project archive (soft-delete)
-
-`DELETE /projects/{id}` is hard-delete today. Add `archived: bool` to
-`Project`; archived projects hidden from the default list, surfaced via a
-filter toggle.
-
 ### 13. Search across pages
 
 For very large books (>500 pages), let the user search the OCR text. Needs
@@ -778,25 +593,6 @@ differ. Behind a `[cuda]` extra so the wheel install stays slim.
 pointing at a long-running `pgdp-prep --mode gpu_worker_only` ECS task with
 per-tenant authentication. Spec 09 §"Backend 2".
 
-### 16. Job retry with payload override — done
-
-`POST /api/gpu/jobs/{id}/retry` now accepts an optional
-`{payload_override: {...}}` body. When non-null, the override is
-shallow-merged over a copy of the original job's payload — keys present
-in the override replace the corresponding original keys; keys not present
-are preserved. The original job's row is never mutated, so the audit
-trail stays intact. Empty `{}` and explicit `null` are both treated as
-"retry verbatim" so the no-body path remains compatible.
-
-Implementation: new `RetryJobRequest` Pydantic model in
-`src/pd_prep_for_pgdp/api/gpu/schemas.py`; the `retry_job` handler in
-`api/gpu/jobs.py` accepts `body: RetryJobRequest | None = None` and
-applies `dict.update()` after copying `job.payload`. Coverage in
-`tests/test_job_retry.py` (7 tests; +4 new): override replaces an
-existing key, override adds a new key while preserving others, empty
-override is a no-op, explicit `None` falls back to the original.
-`make test` 381 passed / 4 pre-existing skips.
-
 ### 17. Spec question: `compute_prefix` first-frontmatter-page numbering
 
 Logged in iteration 1. The spec's loop `range(start, min(idx0, end+1))` is
@@ -818,181 +614,11 @@ a one-line code (or spec) edit plus a deliberate test update.
 
 ## P4 — Operations / observability
 
-### 18. Structured logging — done
-
-Tick 13 wired stdlib-only structured logging with request-id
-correlation, opt-in for managed mode (default behaviour unchanged for
-solo proofers).
-
-- `core/logging_config.py` — `configure_logging(format)` installs one
-  managed `StreamHandler` on the root logger (idempotent — uvicorn
-  `--reload` won't stack handlers); `JsonFormatter` emits one JSON
-  object per record with keys `ts`, `level`, `logger`, `msg`,
-  `request_id`, plus folded `extra=` fields and `exc` on
-  `log.exception`. Plain format gets `[rid=...]` rendered inline.
-- `api/middleware/request_id.py` — pure ASGI middleware (`BaseHTTPMiddleware`)
-  reads/echoes `X-Request-ID`, mints a `uuid4().hex` if absent, and
-  publishes the id on a `ContextVar` so every `logging.getLogger().info(...)`
-  below it picks the value up via `RequestIdFilter`. Registered in
-  `bootstrap.build_app()` after CORS so it's outermost in the ASGI
-  stack — every log line, including from exception handlers and the
-  SPA fallback, carries the correlation id.
-- `Settings.log_format: Literal["plain", "json"] = "plain"` and
-  `Settings.request_id_header: str = "X-Request-ID"` — both defaults
-  preserve current behaviour; managed deployments flip
-  `PGDP_LOG_FORMAT=json`.
-- Coverage in `tests/test_logging_structured.py`: 9 tests covering
-  plain rendering with rid, JSON schema + folded extras, JSON traceback
-  via `log.exception`, middleware generates+echoes id, middleware
-  preserves incoming id, filter attaches attribute by default,
-  idempotency, formatter handles records without filter, import
-  cleanliness.
-- Full pytest suite: 368 passed / 4 skipped (was 359 passed; +9 new
-  tests).
-- No new prod dependencies — pure stdlib (`json`, `logging`,
-  `contextvars`, `uuid`, `starlette.middleware.base`).
-
-### 19. Health check endpoint — done
-
-`GET /healthz` (tick 12) returns
-`{status, gpu_backend, dispatcher, db_reachable, mode}` —
-unauthenticated, excluded from `/openapi.json`, mounted before the SPA
-fallback so the catch-all route doesn't shadow it. The DB reachability
-probe is a single bounded `list_recent_jobs("__healthz__", limit=1)`
-call (synthetic owner, guaranteed empty result, read-only); any
-exception flips `db_reachable=False` and `status="degraded"` while
-still returning HTTP 200 — orchestrators want a live "I'm alive but
-degraded" signal, not a 500. `dispatcher` is reported as
-`"batched"` (when `dispatch_interval_seconds > 0`) or `"immediate"`;
-`gpu_backend` echoes `GPUBackend.name`. Lives at
-`src/pd_prep_for_pgdp/api/healthz.py`, wired in `bootstrap.py` for both
-`full` and `gpu_worker_only` modes (worker-only nodes still need
-liveness). Coverage in `tests/test_healthz.py`: 5 tests covering happy
-path, batched dispatcher, unauthenticated access in apikey mode,
-db-unreachable degraded path (via patched `list_recent_jobs`), and
-schema-exclusion. `make test` 359 passed / 4 pre-existing skips.
-
-### 20. OpenAPI codegen — done
-
-**Status:** fully shipped. Spec-drift guard (iter 5), codegen scaffold
-(iter 12), types.gen drift guard (iter 14), `ApiModel` strict-Output
-fix (iter 16), and full consumer sweep + `types.ts` deletion (iter 17,
-2026-05-07).
-
-Spec-drift guard: `openapi.json` is committed at the repo root, and
-`tests/test_openapi_spec_committed.py` asserts it matches what
-`build_app().openapi()` emits now. Drift fails CI; fix-it is
-`make openapi-export` + commit the updated `openapi.json`.
-
-Codegen pipeline: `make openapi-export` writes
-`frontend/src/api/types.gen.ts` (the *only* shape file). Drift guard
-in `frontend/src/api/types.gen.drift.test.ts` re-runs
-`openapi-typescript` and asserts byte-equality with the committed
-output, so the generated file can't fall behind the spec without CI
-catching it.
-
-`ApiModel` (iter 16) is the Pydantic base every response model
-inherits from. It marks fields with `default_factory` as required in
-the *serialization* schema so `-Output` variants are strict (every
-field present on the wire). Input variants stay all-optional.
-Frontend code reaches into `components["schemas"]["Foo-Output"]` for
-read shapes and `Foo-Input` for write shapes; consumers without a
-split (CRUD requests, plain enums, etc.) use the bare schema name.
-
-Iter 17 swept all six SPA consumers (`ProjectListPage`,
-`ProjectReviewQueuePage`, `TextReviewPage`, `PageWorkbenchPage`,
-`ProjectConfigurePage`, plus the three `api/*.test.ts` wire tests
-and the `pages/*.test.tsx` mount tests) onto generated shapes,
-filling fixture gaps the hand-written types had silently allowed
-(e.g. `Project.pipeline_state`, `PageRecord.{last_processed_at, outputs}`,
-all 14 explicit-null fields on `PageConfigOverrides-Output`). The
-hand-written `frontend/src/api/types.ts` is deleted.
-
 ### 21. Memory pruning revisit
 
 `memory/project_state.md` was pruned at iteration 11 (collapsed iterations
 1-7 into a table). It's grown again. Fold older "Done" sections into the
 table once they're stable.
-
-### 22. CI guard that the wheel actually contains the SPA bundle — done
-
-**Status (tick 15 + tick 17):** fully landed.
-
-CI side (tick 15) — `.github/workflows/release.yml`:
-
-1. The `test` job `needs: [build-frontend]` and downloads the
-   `frontend-dist` artifact into `src/pd_prep_for_pgdp/static/`
-   before pytest, so `tests/test_spa_fallback.py` runs for real
-   instead of skipping (acceptance #1).
-2. The `build-wheel` job runs a `python -m zipfile -l dist/*.whl`
-   assertion that fails the job if `pd_prep_for_pgdp/static/index.html`
-   isn't inside the produced wheel (acceptance #2 at the CI level).
-
-Local side (tick 17) — Hatchling build hook:
-
-1. `build_hooks/spa_check.py` is wired via
-   `[tool.hatch.build.targets.wheel.hooks.custom]` in `pyproject.toml`.
-   The hook runs at the start of any wheel build (`uv build`,
-   `hatch build`, `pip wheel .`, etc.) and raises a `RuntimeError`
-   pointing at `make frontend-build` if
-   `src/pd_prep_for_pgdp/static/index.html` is missing or empty.
-   Validated both directions: positive case (SPA present) builds
-   the wheel as before; negative case (SPA removed) fails before
-   any wheel is produced with the intended error message. An
-   undocumented `PD_PREP_SKIP_SPA_CHECK=1` escape hatch exists for
-   the rare case of intentionally headless wheels.
-
-Remaining nicety (not blocking close):
-
-- DEVELOPMENT.md note that `make build` is the canonical path. The
-  hook now makes `uv build` *also* safe, so this is informational
-  rather than load-bearing.
-
-**Gap:** the "wheel must include the SPA build" gotcha (CLAUDE.md, README)
-has no automated guard.
-
-Two failure modes silently slip past CI today:
-
-1. `tests/test_spa_fallback.py` skips itself when
-   `src/pd_prep_for_pgdp/static/index.html` is missing (see the
-   module-level `pytestmark = pytest.mark.skipif(not _spa_built(), ...)`).
-   The `test` job in `.github/workflows/release.yml` does not run
-   `make frontend-build` before pytest, so on every PR/main push these
-   tests skip and report green.
-2. `make ci` chains `frontend-build` via `make build`, but anyone
-   building the wheel directly (`uv build`, `pip wheel`,
-   ad-hoc release scripts) bypasses that. There's no
-   `MANIFEST.in` / `pyproject` check that asserts the built wheel
-   contains `pd_prep_for_pgdp/static/index.html`.
-
-**Concrete next steps:**
-
-1. Add `make frontend-build` (or download the `build-frontend` artifact
-   already produced in the release workflow) to the `test` job in
-   `release.yml` so the SPA fallback tests actually execute in CI.
-   Alternatively, fail-loud: convert the `skipif` in
-   `test_spa_fallback.py` to a hard `pytest.fail(...)` when the
-   `CI` env var is set, so CI is forced to build the SPA.
-2. Add a `tests/test_wheel_contents.py` (or a `make verify-wheel`
-   target invoked by `make build`) that runs `uv build`, then
-   `python -m zipfile -l dist/*.whl | grep static/index.html`
-   and fails the build if the bundled SPA is missing. This catches
-   the "wheel built outside `make`" case.
-3. Document in `DEVELOPMENT.md` that `uv build` directly is not the
-   supported path — `make build` is canonical because of step 2.
-
-**Acceptance:**
-
-1. Removing `src/pd_prep_for_pgdp/static/` and pushing a PR makes CI
-   red on the test job, not silently green.
-2. Building a wheel without the SPA bundle (e.g.
-   `rm -rf src/pd_prep_for_pgdp/static && uv build`) fails locally
-   before the wheel is produced, with a message pointing the user
-   at `make frontend-build`.
-
-**Why P4:** this is an operations / CI safety net, not a user-facing
-feature. The cost of the bug today is "first user of the broken wheel
-sees a blank page and reports it"; the fix cost is small.
 
 ### 26. Frontend ESLint + Prettier pre-commit hooks
 
@@ -1068,8 +694,9 @@ the SPA strings would need an i18n layer (react-intl or similar).
 
 1. Read `docs/01-overview.md` (this directory) for the high-level shape.
 2. Read the relevant spec for whatever layer you're touching.
-3. Pick the lowest-numbered open item in this file (P0 first); items
-   marked "— done" are already shipped and kept here for context.
+3. Pick the lowest-numbered open item in this file (P0 first); shipped
+   items live in `08-roadmap-shipped.md` for context.
 4. TDD-first when possible; the test recipe is in `docs/07-testing.md`.
-5. When you finish an item, edit it in place — append "— done" to the
-   heading and a one-paragraph note describing what landed and where.
+5. When you finish an item, **move it out** of this file into
+   `08-roadmap-shipped.md` with a condensed summary + commit SHAs.
+   Don't leave shipped items in this file with a "done" flag.
