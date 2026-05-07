@@ -110,6 +110,35 @@ slim.
 pointing at a long-running `pgdp-prep --mode gpu_worker_only` ECS task with
 per-tenant authentication. Spec 09 §"Backend 2".
 
+### 16. Thumbnail nvjpeg / DALI GPU path (future)
+
+**Status (2026-05-07):** **deferred.** Step 2 thumbnail generation is
+CPU-bound JPEG decode + resize + encode. The current shipped approach
+parallelises across cores via `concurrent.futures.ProcessPoolExecutor`
+(default `max_workers=os.cpu_count()`, override `PGDP_THUMBNAIL_WORKERS`,
+1 disables); see `_make_thumbnail_bytes` and the pool wiring in
+`core/ingest.generate_thumbnails`. That is the right default — the
+work is trivially data-parallel and each worker stays in its own cv2
+process, so there is no shared-state contention.
+
+A GPU fast path (NVIDIA **nvjpeg** for decode/encode, optionally
+**DALI** for the resize pipeline) is _not_ a free win on the
+thumbnail workload. nvjpeg shines when many images stay resident on
+the GPU for downstream work; here each thumbnail is a one-shot
+decode → resize → encode → return-to-host. The per-image PCIe
+round-trip (host→device for source bytes, device→host for the
+encoded JPEG) typically washes the kernel speedup unless the batch
+is large enough to amortise it via streams, and even then the
+encode is the bottleneck and `nvjpegEncoder` is finicky about
+chroma subsampling and quality knobs matching cv2 output.
+
+Revisit only if profiling on a real book (≥500 pages, GPU host)
+shows the CPU pool path becoming the dominant Step-2 cost _after_
+storage I/O. Implementation sketch when picked up: a
+`thumbnails_backend = "cpu" | "nvjpeg"` adapter selector that lives
+alongside `GpuBackend`; nvjpeg path gated behind a `[cuda]` extra
+the same way Step 4's CUDA primitives are (#14).
+
 ### 17. Spec question: `compute_prefix` first-frontmatter-page numbering
 
 Logged in iteration 1. The spec's loop `range(start, min(idx0, end+1))` is
