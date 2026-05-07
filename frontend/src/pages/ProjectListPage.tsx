@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import type { components } from "../api/types.gen";
+import { FormErrorBanner } from "../components/FormErrorBanner";
 import { Dialog, DialogContent, DialogTitle } from "../components/ui/Dialog";
 
 type CreateProjectRequest = components["schemas"]["CreateProjectRequest"];
@@ -57,10 +58,7 @@ export function ProjectListPage() {
   );
 }
 
-type Step =
-  | { kind: "form" }
-  | { kind: "uploading"; pct: number }
-  | { kind: "error"; message: string };
+type Step = { kind: "form" } | { kind: "uploading"; pct: number };
 
 function CreateProjectModal({
   open,
@@ -122,8 +120,10 @@ function CreateProjectModal({
       // watch unzip then thumbnails progress side-by-side.
       navigate(`/jobs?project_id=${encodeURIComponent(project.id)}`);
     },
-    onError: (e) => {
-      setStep({ kind: "error", message: (e as Error).message });
+    onError: () => {
+      // Surface via the global sonner toast (FormErrorBanner below);
+      // drop back to the form so the user can correct + retry.
+      setStep({ kind: "form" });
     },
   });
 
@@ -181,11 +181,10 @@ function CreateProjectModal({
           <ProgressLine label={`Uploading… ${step.pct}%`} pct={step.pct} />
         )}
 
-        {step.kind === "error" && (
-          <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
-            {step.message}
-          </div>
-        )}
+        <FormErrorBanner
+          prefix="create project failed"
+          error={createMut.isError ? (createMut.error as Error) : null}
+        />
       </DialogContent>
     </Dialog>
   );

@@ -1,53 +1,82 @@
 /**
- * Tests for FormErrorBanner — small inline error-message component that
- * consolidates the duplicated `<span class="text-xs text-red-600">…</span>`
- * sites in TextReviewPage (save / re-OCR / delete-words mutation errors).
+ * Tests for FormErrorBanner — side-effect-only component that fires a sonner
+ * `toast.error(...)` whenever its `error` prop transitions from null/undefined
+ * to a real Error.
  *
- * This is the §13a stepping-stone before the sonner/toast swap: keep the
- * visual + a11y contract identical, just behind a single component so the
- * later swap is one edit, not three.
+ * §13a step 2 (sonner): the inline `<span role="alert">` body retired in
+ * favor of a global toast surface. The component still exists so the three
+ * call sites in TextReviewPage + the ProjectListPage create-modal error
+ * branch can stay declarative — they pass an error and the banner deals
+ * with the toast plumbing.
  *
  * Contract:
- *   - Renders nothing (returns null) when `error` is null/undefined.
- *   - When an Error is passed, renders a single element containing
- *     `${prefix}: ${error.message}`.
- *   - Has role="alert" so AT users get the failure announced.
- *   - Carries the existing tailwind classes so visual regression is nil.
+ *   - Renders nothing (returns null) — confirms the toast is the only UX surface.
+ *   - When `error` becomes a real Error, calls `toast.error("${prefix}: ${msg}")`.
+ *   - Null/undefined errors do NOT fire a toast.
+ *   - The toast fires once per distinct Error instance — re-renders with the
+ *     same Error reference do not re-toast (mutations don't typically reuse
+ *     Error instances, but the dedupe guards strict-mode double-render).
  */
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { render } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FormErrorBanner } from "./FormErrorBanner";
 
+vi.mock("sonner", () => ({
+  toast: {
+    error: vi.fn(),
+  },
+}));
+
+import { toast } from "sonner";
+
 describe("FormErrorBanner", () => {
-  it("renders nothing when error is null", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("renders nothing (toast is the only surface)", () => {
     const { container } = render(
-      <FormErrorBanner prefix="save failed" error={null} />,
+      <FormErrorBanner prefix="save failed" error={new Error("boom")} />,
     );
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("renders nothing when error is undefined", () => {
-    const { container } = render(
-      <FormErrorBanner prefix="save failed" error={undefined} />,
-    );
-    expect(container).toBeEmptyDOMElement();
+  it("does not fire a toast when error is null", () => {
+    render(<FormErrorBanner prefix="save failed" error={null} />);
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
-  it("renders prefix + message when error is an Error", () => {
+  it("does not fire a toast when error is undefined", () => {
+    render(<FormErrorBanner prefix="save failed" error={undefined} />);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("fires toast.error with `${prefix}: ${message}` when an Error is passed", () => {
     render(<FormErrorBanner prefix="save failed" error={new Error("boom")} />);
-    expect(screen.getByText("save failed: boom")).toBeInTheDocument();
+    expect(toast.error).toHaveBeenCalledWith("save failed: boom");
   });
 
-  it("exposes role=alert so screen readers announce the failure", () => {
-    render(<FormErrorBanner prefix="ocr failed" error={new Error("nope")} />);
-    const alert = screen.getByRole("alert");
-    expect(alert).toHaveTextContent("ocr failed: nope");
+  it("does not re-fire on re-render with the same Error reference", () => {
+    const err = new Error("same");
+    const { rerender } = render(
+      <FormErrorBanner prefix="ocr failed" error={err} />,
+    );
+    rerender(<FormErrorBanner prefix="ocr failed" error={err} />);
+    expect(toast.error).toHaveBeenCalledTimes(1);
   });
 
-  it("preserves the existing tailwind error styling classes", () => {
-    render(<FormErrorBanner prefix="delete failed" error={new Error("x")} />);
-    const alert = screen.getByRole("alert");
-    expect(alert.className).toContain("text-xs");
-    expect(alert.className).toContain("text-red-600");
+  it("fires again when a new Error instance arrives", () => {
+    const { rerender } = render(
+      <FormErrorBanner prefix="delete failed" error={new Error("first")} />,
+    );
+    rerender(
+      <FormErrorBanner prefix="delete failed" error={new Error("second")} />,
+    );
+    expect(toast.error).toHaveBeenCalledTimes(2);
+    expect(toast.error).toHaveBeenLastCalledWith("delete failed: second");
   });
 });

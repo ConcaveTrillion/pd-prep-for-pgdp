@@ -67,32 +67,29 @@ for local; Postgres has built-in TS.
 ### 13a. Adopt shadcn/ui + Radix and close the spec/code divergence
 
 `specs/00-overview.md:57,126` and `specs/03-ui-layout.md:5,404` name
-shadcn/ui (Radix-backed) as the intended component library. **Step 1
-shipped** (`0b6d30e`, see `08-roadmap-shipped.md` §13a step 1):
-`@radix-ui/react-dialog` + `frontend/src/components/ui/Dialog.tsx`
-wrapper, `ProjectListPage` create-project modal swapped over. Focus
-trap, Escape, scroll-lock, click-outside now come from Radix — the
-hand-rolled overlay was retired.
+shadcn/ui (Radix-backed) as the intended component library. **Steps 1
+and 2 shipped** (see `08-roadmap-shipped.md` §13a):
+`@radix-ui/react-dialog` + the `Dialog` wrapper retired the hand-rolled
+ProjectListPage overlay (`0b6d30e`); `sonner` + the `<Toaster>` at the
+app root + the side-effect-only `<FormErrorBanner>` retired the inline
+red error bodies in TextReviewPage and the ProjectListPage create
+modal.
 
 Remaining open work (no prescribed milestone, pick whichever pairs
 with the next slice that touches its surface):
 
-1. **More Radix primitives** for `AlertDialog`, `Toast` (sonner),
-   `Tabs`, `Select`, `Popover`, `Tooltip`. The `Dialog` primitive in
-   `components/ui/` is the template — install the relevant
-   `@radix-ui/react-*`, write a thin wrapper, swap in callers.
-2. **`sonner`** as the toast surface (one `<Toaster>` provider at the
-   app root, replace `<FormErrorBanner>` body with `toast.error(...)`,
-   replace the `step.kind === "error"` block in the ProjectListPage
-   modal too). The `<FormErrorBanner>` stepping stone (`66e6f73`)
-   means the swap is one component edit, not three call-site rewrites.
-3. **`react-hotkeys-hook`** for keyboard shortcuts. Today the
+1. **More Radix primitives** for `AlertDialog`, `Tabs`, `Select`,
+   `Popover`, `Tooltip`. The `Dialog` primitive in `components/ui/` is
+   the template — install the relevant `@radix-ui/react-*`, write a
+   thin wrapper, swap in callers. `AlertDialog` is a good fit for the
+   delete-project confirm in `ProjectListPage.tsx`.
+2. **`react-hotkeys-hook`** for keyboard shortcuts. Today the
    Delete/Backspace/Escape handler in `TextReviewPage.tsx` is a raw
    `window.addEventListener("keydown", ...)` with hand-written
    scope checks against `tagName` and `contentEditable` (tick 22 / 24);
    a hook layer would fold that into a reusable scope and leave room
    for Prev/Next-page bindings on `PageWorkbenchPage`.
-4. **`vite-tsconfig-paths`** + `tsconfig` `paths` aliases so imports
+3. **`vite-tsconfig-paths`** + `tsconfig` `paths` aliases so imports
    become `@/components/...`, `@/api/client`, `@/lib/marquee` instead
    of `../../api/client` chains. Cosmetic, but pays off as the
    component tree deepens.

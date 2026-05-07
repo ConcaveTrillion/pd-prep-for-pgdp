@@ -44,11 +44,43 @@ dev-mode "missing description" warning; future callers that want a
 description add a `<DialogDescription>` child and Radix wires it
 automatically through the same context.
 
-Remaining §13a items (sonner toast layer, react-hotkeys-hook,
-vite-tsconfig-paths, AlertDialog/Tabs/Select/Popover/Tooltip primitives)
-are still open in the active roadmap.
+Remaining §13a items (react-hotkeys-hook, vite-tsconfig-paths,
+AlertDialog/Tabs/Select/Popover/Tooltip primitives) are still open in
+the active roadmap.
 
 - `0b6d30e` feat(frontend): swap ProjectListPage modal to Radix Dialog (§13a step 1)
+
+---
+
+## §13a step 2 — sonner toast surface
+
+Adds `sonner` and mounts one `<Toaster position="top-right" richColors closeButton />`
+at the app root in `main.tsx` — sibling of `<BrowserRouter>` inside the
+`QueryClientProvider`. Replaces the inline `<span role="alert">` body
+of `FormErrorBanner` with a side-effect-only component: when `error`
+becomes a real Error, fires `toast.error("${prefix}: ${error.message}")`
+once per distinct Error reference (a `useRef<Error | null>` guards
+against React strict-mode double-render and benign re-renders from
+sibling state). Component returns `null` — toast is the only UX
+surface now.
+
+Three TextReviewPage call sites (save / re-OCR / delete-words) needed
+no caller-side change because the §13a step 1.5 stepping stone
+(`66e6f73`) had already routed them through `<FormErrorBanner>`.
+
+The ProjectListPage create-modal `step.kind === "error"` branch is
+gone. The `Step` union shrank to `form | uploading`; on mutation
+error, `onError` resets to `{ kind: "form" }` so the user can correct
+and retry, and a `<FormErrorBanner prefix="create project failed">`
+mounted in the modal fires the toast.
+
+Test contract update: `FormErrorBanner.test.tsx` no longer asserts an
+inline `role="alert"` span — sonner renders into a portal that's
+brittle in jsdom. Tests `vi.mock("sonner")`, render the component,
+and assert `toast.error` was called with the expected text. Six
+tests cover null/undefined → no toast, Error → toast, dedupe on
+same-ref re-render, fresh toast on new Error instance, and the
+"renders nothing" invariant.
 
 ---
 
