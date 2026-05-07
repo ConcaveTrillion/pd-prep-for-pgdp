@@ -188,8 +188,7 @@ frontend-test: ## Run the SPA's vitest suite (jsdom + msw)
 
 openapi-export: ## Regenerate frontend/src/api/types.ts from /openapi.json
 	@echo "📤 Exporting OpenAPI schema and regenerating TS types..."
-	uv run python -c "import json, sys; from pd_prep_for_pgdp.bootstrap import build_app; \
-print(json.dumps(build_app().openapi(), indent=2))" > frontend/openapi.json
+	uv run python scripts/export_openapi.py frontend/openapi.json
 	@if $(HAVE_MISE); then \
 		cd frontend && $(MISE) exec -- npx --yes openapi-typescript openapi.json -o src/api/types.ts; \
 	else \

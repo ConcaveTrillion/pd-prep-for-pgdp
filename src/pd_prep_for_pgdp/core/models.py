@@ -240,6 +240,7 @@ class Project(BaseModel):
     config: ProjectConfig
     pipeline_state: PipelineState
     storage_prefix: str
+    archived: bool = False
 
 
 # ─── ResolvedPageConfig (output of resolver; not persisted) ──────────────────

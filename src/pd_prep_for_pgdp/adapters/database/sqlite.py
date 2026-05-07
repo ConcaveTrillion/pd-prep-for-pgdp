@@ -122,14 +122,25 @@ class SqliteDatabase:
 
     # ── Projects ────────────────────────────────────────────────────────────
 
-    async def list_projects(self, owner_id: str) -> list[Project]:
+    async def list_projects(
+        self,
+        owner_id: str,
+        *,
+        include_archived: bool = False,
+    ) -> list[Project]:
         def _go() -> list[Project]:
             with self._cursor() as cur:
                 rows = cur.execute(
                     "SELECT body FROM projects WHERE owner_id = ? ORDER BY updated_at DESC",
                     (owner_id,),
                 ).fetchall()
-                return [Project.model_validate_json(r[0]) for r in rows]
+                projects = [Project.model_validate_json(r[0]) for r in rows]
+            if include_archived:
+                return projects
+            # Filter post-load: `archived` lives in the JSON body, not its own
+            # column, so a SQL filter would need a JSON-extract expression.
+            # Project counts per owner are small (∼dozens) — in-memory is fine.
+            return [p for p in projects if not p.archived]
 
         return await self._run(_go)
 

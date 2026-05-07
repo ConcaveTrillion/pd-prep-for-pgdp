@@ -86,10 +86,11 @@ async def create_project(
 
 @router.get("/projects", response_model=list[Project])
 async def list_projects(
+    include_archived: bool = False,
     user: UserContext = Depends(get_user),
     db: IDatabase = Depends(get_database),
 ) -> list[Project]:
-    return await db.list_projects(user.user_id)
+    return await db.list_projects(user.user_id, include_archived=include_archived)
 
 
 @router.get("/projects/{project_id}", response_model=Project)
@@ -156,3 +157,45 @@ async def delete_project(
     if project.owner_id != user.user_id:
         raise HTTPException(403, "not authorised")
     await db.delete_project(project_id)
+
+
+async def _set_archived(
+    project_id: str,
+    *,
+    archived: bool,
+    user: UserContext,
+    db: IDatabase,
+) -> Project:
+    project = await db.get_project(project_id)
+    if project is None:
+        raise HTTPException(404, "project not found")
+    if project.owner_id != user.user_id:
+        raise HTTPException(403, "not authorised")
+    if project.archived != archived:
+        project.archived = archived
+        project.updated_at = datetime.now(UTC)
+        await db.put_project(project)
+    return project
+
+
+@router.post("/projects/{project_id}/archive", response_model=Project)
+async def archive_project(
+    project_id: str,
+    user: UserContext = Depends(get_user),
+    db: IDatabase = Depends(get_database),
+) -> Project:
+    """Soft-delete: hide the project from default listings without removing data.
+
+    Idempotent — archiving an already-archived project is a no-op (still 200).
+    """
+    return await _set_archived(project_id, archived=True, user=user, db=db)
+
+
+@router.post("/projects/{project_id}/unarchive", response_model=Project)
+async def unarchive_project(
+    project_id: str,
+    user: UserContext = Depends(get_user),
+    db: IDatabase = Depends(get_database),
+) -> Project:
+    """Restore a soft-deleted project. Idempotent."""
+    return await _set_archived(project_id, archived=False, user=user, db=db)

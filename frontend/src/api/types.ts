@@ -50,6 +50,7 @@ export interface Project {
   proof_page_count: number;
   config: ProjectConfig;
   storage_prefix: string;
+  archived: boolean;
 }
 
 export interface CreateProjectRequest {

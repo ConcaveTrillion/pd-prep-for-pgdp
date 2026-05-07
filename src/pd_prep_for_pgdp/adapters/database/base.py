@@ -25,7 +25,12 @@ class IDatabase(Protocol):
     async def put_system_defaults(self, owner_id: str, defaults: SystemDefaults) -> None: ...
 
     # ── Projects ────────────────────────────────────────────────────────────
-    async def list_projects(self, owner_id: str) -> list[Project]: ...
+    async def list_projects(
+        self,
+        owner_id: str,
+        *,
+        include_archived: bool = False,
+    ) -> list[Project]: ...
 
     async def get_project(self, project_id: str) -> Project | None: ...
 
