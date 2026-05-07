@@ -754,7 +754,7 @@ export interface components {
          * IllustrationRegion
          * @description Coords in SOURCE image space (original scan, pre-processing).
          */
-        IllustrationRegion: {
+        "IllustrationRegion-Input": {
             /**
              * Index
              * @default 1
@@ -779,6 +779,52 @@ export interface components {
             T?: number | null;
             /** B */
             B?: number | null;
+            /**
+             * Output Format
+             * @default jpg
+             * @enum {string}
+             */
+            output_format: "jpg" | "png";
+            /**
+             * Jpeg Quality
+             * @default 85
+             */
+            jpeg_quality: number;
+            /**
+             * Convert To Grayscale
+             * @default false
+             */
+            convert_to_grayscale: boolean;
+        };
+        /**
+         * IllustrationRegion
+         * @description Coords in SOURCE image space (original scan, pre-processing).
+         */
+        "IllustrationRegion-Output": {
+            /**
+             * Index
+             * @default 1
+             */
+            index: number;
+            /**
+             * Label
+             * @default
+             */
+            label: string;
+            /**
+             * Type
+             * @default illustration
+             * @enum {string}
+             */
+            type: "illustration" | "decoration" | "plate";
+            /** L */
+            L: number | null;
+            /** R */
+            R: number | null;
+            /** T */
+            T: number | null;
+            /** B */
+            B: number | null;
             /**
              * Output Format
              * @default jpg
@@ -822,20 +868,20 @@ export interface components {
             type: components["schemas"]["JobType"];
             /** @default queued */
             status: components["schemas"]["JobStatus"];
-            progress?: components["schemas"]["JobProgress"];
+            progress: components["schemas"]["JobProgress"];
             /**
              * Created At
              * Format: date-time
              */
-            created_at?: string;
+            created_at: string;
             /** Started At */
-            started_at?: string | null;
+            started_at: string | null;
             /** Completed At */
-            completed_at?: string | null;
+            completed_at: string | null;
             /** Next Dispatch At */
-            next_dispatch_at?: string | null;
+            next_dispatch_at: string | null;
             /** Error Message */
-            error_message?: string | null;
+            error_message: string | null;
             /**
              * Gpu Backend
              * @default local
@@ -843,7 +889,7 @@ export interface components {
              */
             gpu_backend: "local" | "cpu" | "modal" | "shared_container";
             /** Payload */
-            payload?: {
+            payload: {
                 [key: string]: unknown;
             };
         };
@@ -860,7 +906,7 @@ export interface components {
              */
             total: number;
             /** Current Page */
-            current_page?: number | null;
+            current_page: number | null;
             /**
              * Message
              * @default
@@ -920,7 +966,7 @@ export interface components {
             /** Text */
             text: string;
             /** Words */
-            words?: components["schemas"]["OcrWord"][];
+            words: components["schemas"]["OcrWord"][];
             /** Text Key */
             text_key: string;
         };
@@ -934,13 +980,13 @@ export interface components {
             confidence: number;
             bounding_box: components["schemas"]["BoundingBox"];
             /** Split Suffix */
-            split_suffix?: string | null;
+            split_suffix: string | null;
         };
         /**
          * PageConfigOverrides
          * @description Per-page processing overrides. Every field None = inherit.
          */
-        PageConfigOverrides: {
+        "PageConfigOverrides-Input": {
             /** Initial Crop */
             initial_crop?: [
                 number,
@@ -981,6 +1027,50 @@ export interface components {
             single_dimension_rescale?: boolean | null;
         };
         /**
+         * PageConfigOverrides
+         * @description Per-page processing overrides. Every field None = inherit.
+         */
+        "PageConfigOverrides-Output": {
+            /** Initial Crop */
+            initial_crop: [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            /** White Space Additional */
+            white_space_additional: [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            /** Threshold Level */
+            threshold_level: number | null;
+            /** Fuzzy Pct */
+            fuzzy_pct: number | null;
+            /** Pixel Count Columns */
+            pixel_count_columns: number | null;
+            /** Pixel Count Rows */
+            pixel_count_rows: number | null;
+            /** Skip Auto Deskew */
+            skip_auto_deskew: boolean | null;
+            /** Deskew Before Crop */
+            deskew_before_crop: number | null;
+            /** Deskew After Crop */
+            deskew_after_crop: number | null;
+            /** Do Morph */
+            do_morph: boolean | null;
+            /** Skip Denoise */
+            skip_denoise: boolean | null;
+            /** Use Ocr Bbox Edge */
+            use_ocr_bbox_edge: boolean | null;
+            /** Rotated Standard */
+            rotated_standard: boolean | null;
+            /** Single Dimension Rescale */
+            single_dimension_rescale: boolean | null;
+        };
+        /**
          * PageOutput
          * @description One per split, or one for whole page.
          */
@@ -992,23 +1082,23 @@ export interface components {
             /** Reading Order */
             reading_order: number;
             /** Proofing Image Key */
-            proofing_image_key?: string | null;
+            proofing_image_key: string | null;
             /** Pre Ocr Image Key */
-            pre_ocr_image_key?: string | null;
+            pre_ocr_image_key: string | null;
             /** Ocr Image Key */
-            ocr_image_key?: string | null;
+            ocr_image_key: string | null;
             /** Ocr Text Key */
-            ocr_text_key?: string | null;
+            ocr_text_key: string | null;
             /** For Zip Image Key */
-            for_zip_image_key?: string | null;
+            for_zip_image_key: string | null;
             /** For Zip Text Key */
-            for_zip_text_key?: string | null;
+            for_zip_text_key: string | null;
             /** @default pending */
             ocr_status: components["schemas"]["PageProcessingStatus"];
             /** Ocr Job Id */
-            ocr_job_id?: string | null;
+            ocr_job_id: string | null;
             /** Ocr Error */
-            ocr_error?: string | null;
+            ocr_error: string | null;
         };
         /**
          * PageProcessingStatus
@@ -1034,35 +1124,35 @@ export interface components {
             page_type: components["schemas"]["PageType"];
             /** @default default */
             alignment: components["schemas"]["AlignmentOverride"];
-            config_overrides?: components["schemas"]["PageConfigOverrides"];
+            config_overrides: components["schemas"]["PageConfigOverrides-Output"];
             /** Splits */
-            splits?: components["schemas"]["PageSplit"][];
+            splits: components["schemas"]["PageSplit-Output"][];
             /** Illustration Regions */
-            illustration_regions?: components["schemas"]["IllustrationRegion"][];
+            illustration_regions: components["schemas"]["IllustrationRegion-Output"][];
             /** Source Key */
-            source_key?: string | null;
+            source_key: string | null;
             /** Thumbnail Key */
-            thumbnail_key?: string | null;
+            thumbnail_key: string | null;
             /** Processed Image Key */
-            processed_image_key?: string | null;
+            processed_image_key: string | null;
             /** Ocr Image Key */
-            ocr_image_key?: string | null;
+            ocr_image_key: string | null;
             /** @default pending */
             processing_status: components["schemas"]["PageProcessingStatus"];
             /** Processing Job Id */
-            processing_job_id?: string | null;
+            processing_job_id: string | null;
             /** Processing Error */
-            processing_error?: string | null;
+            processing_error: string | null;
             /** Last Processed At */
-            last_processed_at?: string | null;
+            last_processed_at: string | null;
             /** Outputs */
-            outputs?: components["schemas"]["PageOutput"][];
+            outputs: components["schemas"]["PageOutput"][];
         };
         /**
          * PageSplit
          * @description Replaces the notebook's `PageSectionSplit`. Coords in PROCESSED image space.
          */
-        PageSplit: {
+        "PageSplit-Input": {
             /** Suffix */
             suffix: string;
             /** Reading Order */
@@ -1085,6 +1175,32 @@ export interface components {
             ocr_engine?: ("doctr" | "tesseract") | null;
         };
         /**
+         * PageSplit
+         * @description Replaces the notebook's `PageSectionSplit`. Coords in PROCESSED image space.
+         */
+        "PageSplit-Output": {
+            /** Suffix */
+            suffix: string;
+            /** Reading Order */
+            reading_order: number;
+            /** L */
+            L: number | null;
+            /** R */
+            R: number | null;
+            /** T */
+            T: number | null;
+            /** B */
+            B: number | null;
+            /**
+             * Scale To Standard Page
+             * @default true
+             */
+            scale_to_standard_page: boolean;
+            alignment: components["schemas"]["AlignmentOverride"] | null;
+            /** Ocr Engine */
+            ocr_engine: ("doctr" | "tesseract") | null;
+        };
+        /**
          * PageType
          * @enum {string}
          */
@@ -1092,7 +1208,7 @@ export interface components {
         /** PipelineState */
         PipelineState: {
             /** Steps */
-            steps?: {
+            steps: {
                 [key: string]: components["schemas"]["StepState"];
             };
         };
@@ -1102,7 +1218,7 @@ export interface components {
             project_id: string;
             /** Idx0 */
             idx0: number;
-            config_overrides: components["schemas"]["PageConfigOverrides"];
+            config_overrides: components["schemas"]["PageConfigOverrides-Input"];
             /**
              * Output Context
              * @default workbench
@@ -1187,9 +1303,9 @@ export interface components {
              */
             proof_end_idx0: number;
             /** Cover Idx0 */
-            cover_idx0?: number | null;
+            cover_idx0: number | null;
             /** Title Idx0 */
-            title_idx0?: number | null;
+            title_idx0: number | null;
             /**
              * Frontmatter Start Idx0
              * @default 0
@@ -1256,20 +1372,20 @@ export interface components {
              */
             ocr_crop_right: number;
             /** Custom Regex Passes */
-            custom_regex_passes?: [
+            custom_regex_passes: [
                 string,
                 string
             ][];
             /** Custom Scannos */
-            custom_scannos?: {
+            custom_scannos: {
                 [key: string]: string;
             };
             /** Layout Category Overrides */
-            layout_category_overrides?: {
+            layout_category_overrides: {
                 [key: string]: string | null;
             };
             /** Default Overrides */
-            default_overrides?: {
+            default_overrides: {
                 [key: string]: unknown;
             };
         };
@@ -1312,17 +1428,17 @@ export interface components {
             /** @default pending */
             status: components["schemas"]["StepStatus"];
             /** Pages Complete */
-            pages_complete?: number[];
+            pages_complete: number[];
             /** Pages Error */
-            pages_error?: {
+            pages_error: {
                 [key: string]: string;
             };
             /** Started At */
-            started_at?: string | null;
+            started_at: string | null;
             /** Completed At */
-            completed_at?: string | null;
+            completed_at: string | null;
             /** Job Id */
-            job_id?: string | null;
+            job_id: string | null;
         };
         /**
          * StepStatus
@@ -1342,7 +1458,7 @@ export interface components {
              * Regions
              * @default []
              */
-            regions: components["schemas"]["IllustrationRegion"][];
+            regions: components["schemas"]["IllustrationRegion-Output"][];
         };
         /** SuggestSplitsRequest */
         SuggestSplitsRequest: {
@@ -1357,10 +1473,10 @@ export interface components {
              * Splits
              * @default []
              */
-            splits: components["schemas"]["PageSplit"][];
+            splits: components["schemas"]["PageSplit-Output"][];
         };
         /** SystemDefaults */
-        SystemDefaults: {
+        "SystemDefaults-Input": {
             /**
              * Text Threshold
              * @default 140
@@ -1424,6 +1540,71 @@ export interface components {
             /** Hyphenation Join List */
             hyphenation_join_list?: string[];
         };
+        /** SystemDefaults */
+        "SystemDefaults-Output": {
+            /**
+             * Text Threshold
+             * @default 140
+             */
+            text_threshold: number;
+            /**
+             * Page H W Ratio
+             * @default 1.65
+             */
+            page_h_w_ratio: number;
+            /**
+             * Default Fuzzy Pct
+             * @default 0.02
+             */
+            default_fuzzy_pct: number;
+            /**
+             * Default Pixel Count Columns
+             * @default 150
+             */
+            default_pixel_count_columns: number;
+            /**
+             * Default Pixel Count Rows
+             * @default 75
+             */
+            default_pixel_count_rows: number;
+            /**
+             * Ocr Engine
+             * @default doctr
+             * @enum {string}
+             */
+            ocr_engine: "doctr" | "tesseract";
+            /** Ocr Model Key */
+            ocr_model_key: string | null;
+            /**
+             * Ocr Dpi
+             * @default 150
+             */
+            ocr_dpi: number;
+            /**
+             * Ocr Bbox Edge Min Words
+             * @default 5
+             */
+            ocr_bbox_edge_min_words: number;
+            /**
+             * Layout Detector
+             * @default pp-doclayout-plus-l
+             * @enum {string}
+             */
+            layout_detector: "none" | "contour" | "pp-doclayout-plus-l";
+            /**
+             * Layout Detector Confidence
+             * @default 0.5
+             */
+            layout_detector_confidence: number;
+            /** Layout Checkpoint */
+            layout_checkpoint: string | null;
+            /** Standard Scannos */
+            standard_scannos: {
+                [key: string]: string;
+            };
+            /** Hyphenation Join List */
+            hyphenation_join_list: string[];
+        };
         /** UpdateConfigRequest */
         UpdateConfigRequest: {
             /** Project Config */
@@ -1446,11 +1627,11 @@ export interface components {
         UpdatePageRequest: {
             page_type?: components["schemas"]["PageType"] | null;
             alignment?: components["schemas"]["AlignmentOverride"] | null;
-            config_overrides?: components["schemas"]["PageConfigOverrides"] | null;
+            config_overrides?: components["schemas"]["PageConfigOverrides-Input"] | null;
             /** Splits */
-            splits?: components["schemas"]["PageSplit"][] | null;
+            splits?: components["schemas"]["PageSplit-Input"][] | null;
             /** Illustration Regions */
-            illustration_regions?: components["schemas"]["IllustrationRegion"][] | null;
+            illustration_regions?: components["schemas"]["IllustrationRegion-Input"][] | null;
         };
         /** UpdatePageTextRequest */
         UpdatePageTextRequest: {
@@ -2050,7 +2231,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SystemDefaults"];
+                    "application/json": components["schemas"]["SystemDefaults-Output"];
                 };
             };
         };
@@ -2064,7 +2245,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SystemDefaults"];
+                "application/json": components["schemas"]["SystemDefaults-Input"];
             };
         };
         responses: {
@@ -2074,7 +2255,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SystemDefaults"];
+                    "application/json": components["schemas"]["SystemDefaults-Output"];
                 };
             };
             /** @description Validation Error */
@@ -2103,7 +2284,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SystemDefaults"];
+                    "application/json": components["schemas"]["SystemDefaults-Output"];
                 };
             };
         };
@@ -2137,7 +2318,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SystemDefaults"];
+                "application/json": components["schemas"]["SystemDefaults-Input"];
             };
         };
         responses: {
@@ -2147,7 +2328,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SystemDefaults"];
+                    "application/json": components["schemas"]["SystemDefaults-Output"];
                 };
             };
             /** @description Validation Error */
