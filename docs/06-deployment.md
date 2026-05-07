@@ -84,8 +84,9 @@ What still needs work:
   `run_batch` raise `NotImplementedError`. The Modal-side container needs
   its own S3 IStorage so it can read source bytes + write outputs back.
   Roadmap item #1.
-- **Postgres adapter** — schema exists in spec 08; the `IDatabase` impl is
-  deferred (psycopg + SQLAlchemy not in this devcontainer's venv).
+- **Postgres adapter** — schema exists in spec 08; the `IDatabase` impl
+  has not been written yet (no `adapters/database/postgres.py`). Roadmap
+  item P0 #2.
 - **`.github/workflows/release.yml`** builds the container on tag push but
   doesn't push to ECR (the user's registry isn't configured).
 

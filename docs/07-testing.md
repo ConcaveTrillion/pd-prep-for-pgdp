@@ -71,8 +71,15 @@ hijacks the test loop and was the cause of an iteration-6 flake.
 - **Real Modal dispatch** — no Modal account in the devcontainer.
   `test_modal_backend.py` injects a `FakeFunctionRegistry` so the wire
   shapes are still verified.
-- **Frontend** — Vitest is deferred (no npm in this devcontainer). The
-  pages have testable seams (named hooks, exported helpers) for when it lands.
+- **Frontend** — Vitest + msw harness landed (roadmap §9). Pure-function
+  helpers (`lineDiff`, `wordOffsets`, `marquee`) and wire-level API clients
+  (`api/client`, `api/pages`, `api/workbench`) have unit coverage; mount-level
+  tests cover `WordBboxOverlay`, `ProjectListPage`'s create-project modal, and
+  `TextReviewPage`'s save / re-OCR-diff / word-delete lifecycles. Run via
+  `make frontend-test`. The remaining untested surface is the rest of the
+  page-level interaction (route-driven mounts beyond `ProjectListPage` /
+  `TextReviewPage`) — testable seams (named hooks, exported helpers) are
+  in place for when those land.
 - **install.sh end-to-end** — would need internet + a clean shell.
 
 ## Test stability

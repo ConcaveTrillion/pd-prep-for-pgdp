@@ -736,11 +736,24 @@ differ. Behind a `[cuda]` extra so the wheel install stays slim.
 pointing at a long-running `pgdp-prep --mode gpu_worker_only` ECS task with
 per-tenant authentication. Spec 09 §"Backend 2".
 
-### 16. Job retry with payload override
+### 16. Job retry with payload override — done
 
-`POST /jobs/{id}/retry` copies the original payload verbatim. Sometimes you
-want to retry with different `page_idxs` or a tweaked confidence threshold.
-Accept an optional `payload_override` body field.
+`POST /api/gpu/jobs/{id}/retry` now accepts an optional
+`{payload_override: {...}}` body. When non-null, the override is
+shallow-merged over a copy of the original job's payload — keys present
+in the override replace the corresponding original keys; keys not present
+are preserved. The original job's row is never mutated, so the audit
+trail stays intact. Empty `{}` and explicit `null` are both treated as
+"retry verbatim" so the no-body path remains compatible.
+
+Implementation: new `RetryJobRequest` Pydantic model in
+`src/pd_prep_for_pgdp/api/gpu/schemas.py`; the `retry_job` handler in
+`api/gpu/jobs.py` accepts `body: RetryJobRequest | None = None` and
+applies `dict.update()` after copying `job.payload`. Coverage in
+`tests/test_job_retry.py` (7 tests; +4 new): override replaces an
+existing key, override adds a new key while preserving others, empty
+override is a no-op, explicit `None` falls back to the original.
+`make test` 381 passed / 4 pre-existing skips.
 
 ### 17. Spec-01 off-by-one in `compute_prefix`
 

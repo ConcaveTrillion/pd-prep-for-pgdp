@@ -66,8 +66,10 @@ Every method is `async def`. Implementations:
   WAL mode, and a `threading.Lock` around the cursor so the concurrent job
   runner doesn't race on commit. Each table stores the Pydantic model as a
   JSON-text column (so model evolution doesn't need migrations).
-- **`PostgresDatabase`** — deferred (psycopg + SQLAlchemy not in this
-  devcontainer's venv). Schema mirror of SQLite via JSON columns.
+- **`PostgresDatabase`** — not yet written. Tracked as roadmap P0 #2.
+  Planned shape: schema mirror of SQLite via JSON columns, psycopg +
+  SQLAlchemy, exercised by parametrising the existing async DB tests
+  over both SQLite and Postgres fixtures.
 
 ### `IAuth` (`adapters/auth/base.py`)
 
