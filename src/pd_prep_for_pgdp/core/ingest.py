@@ -161,15 +161,19 @@ async def generate_thumbnails(
     # This is the hot path the user observed slowing down on CPU. By
     # processing all pages inside one threadpool dispatch, we pay the
     # context-switch + cv2-warmup cost once instead of `total` times.
+    # Per-page work is delegated to the top-level `thumbnail_for_page`
+    # function so a future slice can swap in a `ProcessPoolExecutor`
+    # without re-shaping the worker boundary.
     def _make_all() -> tuple[list[tuple[int, str, bytes]], list[str]]:
         results: list[tuple[int, str, bytes]] = []
         errs: list[str] = []
         for idx0, stem, data in todo:
-            try:
-                jpg = _make_thumbnail_bytes(data)
-                results.append((idx0, stem, jpg))
-            except _CorruptImageError as e:
-                errs.append(f"{stem}: {e}")
+            r_idx0, r_stem, jpg, err = thumbnail_for_page(idx0, stem, data)
+            if err is not None:
+                errs.append(f"{r_stem}: {err}")
+                continue
+            assert jpg is not None
+            results.append((r_idx0, r_stem, jpg))
         return results, errs
 
     thumbnails, errors = await anyio.to_thread.run_sync(_make_all)
@@ -336,6 +340,32 @@ def _stem_from_zipname(name: str) -> str:
 
 class _CorruptImageError(ValueError):
     """Raised when cv2 cannot decode the source bytes."""
+
+
+def thumbnail_for_page(idx0: int, stem: str, src: bytes) -> tuple[int, str, bytes | None, str | None]:
+    """Pool-friendly per-page thumbnail worker.
+
+    Top-level module function (not a closure, not a method) with all-picklable
+    args + return so it can be dispatched to a `concurrent.futures.ProcessPoolExecutor`
+    without surprises. No shared state, no storage handles — the parent
+    process owns I/O bookkeeping and is responsible for persisting the
+    returned JPEG bytes under the project's thumbnails prefix.
+
+    Returns
+    -------
+    (idx0, stem, jpg_bytes, error_message)
+        On success ``error_message is None`` and ``jpg_bytes`` is set.
+        On a corrupt-image failure ``jpg_bytes is None`` and
+        ``error_message`` carries the cv2 reason. Errors are returned —
+        not raised — so a single bad page in a pool batch doesn't kill
+        the rest of the work; the orchestrator decides how to surface
+        per-page failures.
+    """
+    try:
+        jpg = _make_thumbnail_bytes(src)
+    except _CorruptImageError as e:
+        return idx0, stem, None, str(e)
+    return idx0, stem, jpg, None
 
 
 def _make_thumbnail_bytes(src: bytes) -> bytes:

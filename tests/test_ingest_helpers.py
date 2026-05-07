@@ -131,3 +131,55 @@ def test_make_thumbnail_keeps_small_image_at_native_size() -> None:
     # No resize — original dimensions retained (cv2 jpg encoding doesn't
     # change shape).
     assert (h, w) == (80, 60)
+
+
+# ─── thumbnail_for_page (pool-friendly per-page worker) ────────────────────
+
+
+def test_thumbnail_for_page_returns_success_payload() -> None:
+    """The pool-friendly worker returns (idx0, stem, jpg_bytes, None) on
+    success.
+
+    Top-level module function with all-picklable args + return so it can be
+    dispatched to a `ProcessPoolExecutor`. No shared state, no closures, no
+    storage handles — the parent process owns I/O.
+    """
+    pytest.importorskip("cv2")
+    from pd_prep_for_pgdp.core.ingest import thumbnail_for_page
+
+    src = _png(80, 60)
+    idx0, stem, jpg, err = thumbnail_for_page(7, "p007", src)
+    assert idx0 == 7
+    assert stem == "p007"
+    assert err is None
+    assert jpg is not None
+    assert jpg[:3] == b"\xff\xd8\xff"  # JPEG magic
+
+
+def test_thumbnail_for_page_returns_error_on_corrupt_bytes() -> None:
+    """Corrupt source bytes surface as the error slot of the result tuple
+    rather than raising — so a failed page in a pool worker doesn't kill
+    the whole batch and the orchestrator can record the per-page error."""
+    pytest.importorskip("cv2")
+    from pd_prep_for_pgdp.core.ingest import thumbnail_for_page
+
+    idx0, stem, jpg, err = thumbnail_for_page(3, "bad", b"not an image at all")
+    assert idx0 == 3
+    assert stem == "bad"
+    assert jpg is None
+    assert err is not None
+    assert "bad" not in err  # stem is in the bookkeeping tuple, not the message
+    # error message comes from the cv2 layer
+    assert "imdecode" in err.lower() or "cv2" in err.lower()
+
+
+def test_thumbnail_for_page_is_top_level_picklable() -> None:
+    """Sanity-check picklability — required for ProcessPoolExecutor dispatch."""
+    import pickle
+
+    from pd_prep_for_pgdp.core.ingest import thumbnail_for_page
+
+    blob = pickle.dumps(thumbnail_for_page)
+    restored = pickle.loads(blob)
+    # Restored ref points at the same module-level function.
+    assert restored is thumbnail_for_page
