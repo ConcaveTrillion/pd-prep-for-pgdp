@@ -18,11 +18,14 @@ a worker thread.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
+import os
 import re
 import zipfile
 from collections.abc import Awaitable, Callable
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -122,18 +125,49 @@ async def unzip_source(
 # ─── Step 2: thumbnails (batched in one threadpool call) ───────────────────
 
 
+def _resolve_thumbnail_workers(*, override: int | None) -> int:
+    """Decide how many worker processes to spawn for thumbnail generation.
+
+    Resolution order: explicit ``override`` arg → ``PGDP_THUMBNAIL_WORKERS``
+    env var (read directly here so the function stays pure / non-importing
+    of pydantic-settings on the hot path) → ``os.cpu_count()``. Values
+    below 1 clamp to 1 — the pool path is opt-out by setting workers to 1
+    rather than 0/negative, so the meaning is always "how many workers,
+    minimum one".
+    """
+    if override is not None:
+        return max(1, int(override))
+    raw = os.environ.get("PGDP_THUMBNAIL_WORKERS")
+    if raw is not None and raw.strip():
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            log.warning("PGDP_THUMBNAIL_WORKERS=%r not an int; falling back to cpu_count", raw)
+    return max(1, os.cpu_count() or 1)
+
+
 async def generate_thumbnails(
     *,
     project: Project,
     storage: IStorage,
     database: IDatabase,
     progress_cb: ProgressCb | None = None,
+    thumbnail_workers: int | None = None,
 ) -> IngestResult:
     """Walk every page without a thumbnail, generate + persist JPGs in batch.
 
     Reads source bytes once per page (skipping pages that already have a
-    thumbnail), then dispatches the whole batch to ONE worker thread so
-    cv2 stays warm — much faster than N round-trips for large books.
+    thumbnail), then either runs the per-page work on a single worker
+    thread (``thumbnail_workers=1``, the test-suite default) or dispatches
+    across a ``ProcessPoolExecutor`` (``thumbnail_workers>=2``). JPEG
+    decode/resize/encode is CPU-bound and trivially data-parallel, so the
+    pool path scales near-linearly with cores on a real book; the
+    single-thread path keeps test runs cheap and avoids a fork on tiny
+    inputs.
+
+    Worker count is resolved by ``_resolve_thumbnail_workers`` —
+    ``thumbnail_workers`` arg → ``PGDP_THUMBNAIL_WORKERS`` env →
+    ``os.cpu_count()``. Pass ``thumbnail_workers=1`` to disable the pool.
     """
     pages_in, _, _ = await database.list_pages(project.id, None, 1_000_000)
 
@@ -157,41 +191,100 @@ async def generate_thumbnails(
         await _mark_step_complete(project, database, step_id=2)
         return IngestResult(page_count=0, errors=[])
 
-    # ── Batch the entire decode+encode pass on a single worker thread ──
-    # This is the hot path the user observed slowing down on CPU. By
-    # processing all pages inside one threadpool dispatch, we pay the
-    # context-switch + cv2-warmup cost once instead of `total` times.
-    # Per-page work is delegated to the top-level `thumbnail_for_page`
-    # function so a future slice can swap in a `ProcessPoolExecutor`
-    # without re-shaping the worker boundary.
-    def _make_all() -> tuple[list[tuple[int, str, bytes]], list[str]]:
-        results: list[tuple[int, str, bytes]] = []
-        errs: list[str] = []
-        for idx0, stem, data in todo:
-            r_idx0, r_stem, jpg, err = thumbnail_for_page(idx0, stem, data)
-            if err is not None:
-                errs.append(f"{r_stem}: {err}")
+    workers = _resolve_thumbnail_workers(override=thumbnail_workers)
+
+    # idx0 → JPEG bytes, populated as workers complete (pool path) or in
+    # one batch on the worker thread (single-process path). Persist after
+    # all results are in, in idx0 order, so the on-disk file order matches
+    # source order regardless of completion order.
+    jpgs_by_idx: dict[int, bytes] = {}
+    errors: list[str] = []
+
+    if workers <= 1:
+        # ── Single-thread path ────────────────────────────────────────────
+        # Used by the test suite (no env override) and by users who explicitly
+        # opt out of the pool. Runs the whole batch on one worker thread so
+        # cv2 stays warm — much faster than N round-trips when total is small.
+        def _make_all() -> tuple[dict[int, bytes], list[str]]:
+            results: dict[int, bytes] = {}
+            errs: list[str] = []
+            for idx0, stem, data in todo:
+                _i, _s, jpg, err = thumbnail_for_page(idx0, stem, data)
+                if err is not None:
+                    errs.append(f"{_s}: {err}")
+                    continue
+                assert jpg is not None
+                results[_i] = jpg
+            return results, errs
+
+        jpgs_by_idx, errors = await anyio.to_thread.run_sync(_make_all)
+
+        # Persist in idx0 order; report progress per page after each write.
+        pages_by_idx = {p.idx0: p for p in pages_in}
+        updated: list[PageRecord] = []
+        done = 0
+        for idx0, stem, _data in todo:
+            jpg = jpgs_by_idx.get(idx0)
+            if jpg is None:
                 continue
-            assert jpg is not None
-            results.append((r_idx0, r_stem, jpg))
-        return results, errs
+            done += 1
+            thumb_key = f"projects/{project.id}/thumbnails/{stem}.jpg"
+            await storage.put_bytes(thumb_key, jpg, "image/jpeg")
+            page = pages_by_idx[idx0]
+            updated.append(page.model_copy(update={"thumbnail_key": thumb_key}))
+            if progress_cb is not None:
+                try:
+                    await progress_cb(done, total, stem)
+                except Exception:
+                    log.exception("thumbnails progress_cb raised; continuing")
+    else:
+        # ── ProcessPoolExecutor path ──────────────────────────────────────
+        # CPU-bound JPEG encode is trivially data-parallel; one worker per
+        # page, no shared state, results streamed back via the running
+        # event loop's default executor + `loop.run_in_executor`. We persist
+        # in idx0 order at the end so on-disk thumbnails line up with
+        # source pages even if the pool returned futures out of order.
+        loop = asyncio.get_running_loop()
+        cap = min(workers, total)
+        # Local alias so tests can `patch.object(ingest_mod, "ProcessPoolExecutor", ...)`
+        # and have the production import path actually exercised.
+        executor_cls = ProcessPoolExecutor
+        with executor_cls(max_workers=cap) as pool:
+            futures = [
+                loop.run_in_executor(pool, thumbnail_for_page, idx0, stem, data) for idx0, stem, data in todo
+            ]
+            done = 0
+            for fut in asyncio.as_completed(futures):
+                r_idx0, r_stem, jpg, err = await fut
+                done += 1
+                if err is not None:
+                    errors.append(f"{r_stem}: {err}")
+                    if progress_cb is not None:
+                        try:
+                            await progress_cb(done, total, r_stem)
+                        except Exception:
+                            log.exception("thumbnails progress_cb raised; continuing")
+                    continue
+                assert jpg is not None
+                jpgs_by_idx[r_idx0] = jpg
+                if progress_cb is not None:
+                    try:
+                        await progress_cb(done, total, r_stem)
+                    except Exception:
+                        log.exception("thumbnails progress_cb raised; continuing")
 
-    thumbnails, errors = await anyio.to_thread.run_sync(_make_all)
-
-    # Persist + update PageRecords. Storage writes are async (one per
-    # thumbnail) but they don't pin a worker thread.
-    pages_by_idx = {p.idx0: p for p in pages_in}
-    updated: list[PageRecord] = []
-    for done, (idx0, stem, jpg) in enumerate(thumbnails, start=1):
-        thumb_key = f"projects/{project.id}/thumbnails/{stem}.jpg"
-        await storage.put_bytes(thumb_key, jpg, "image/jpeg")
-        page = pages_by_idx[idx0]
-        updated.append(page.model_copy(update={"thumbnail_key": thumb_key}))
-        if progress_cb is not None:
-            try:
-                await progress_cb(done, total, stem)
-            except Exception:
-                log.exception("thumbnails progress_cb raised; continuing")
+        # Persist in idx0 order so output is deterministic regardless of
+        # which worker finished first.
+        pages_by_idx = {p.idx0: p for p in pages_in}
+        updated = []
+        for idx0, stem, _data in todo:
+            jpg = jpgs_by_idx.get(idx0)
+            if jpg is None:
+                continue
+            thumb_key = f"projects/{project.id}/thumbnails/{stem}.jpg"
+            await storage.put_bytes(thumb_key, jpg, "image/jpeg")
+            page = pages_by_idx[idx0]
+            updated.append(page.model_copy(update={"thumbnail_key": thumb_key}))
 
     if updated:
         await database.put_pages(updated)

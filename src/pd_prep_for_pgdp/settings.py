@@ -64,6 +64,17 @@ class Settings(BaseSettings):
     dispatch_interval_seconds: int = 0
     """0 = immediate (local/self-hosted). 300 = managed-mode batch flush."""
 
+    # ── Thumbnail generation (Step 2) ────────────────────────────────────────
+    thumbnail_workers: int | None = None
+    """Worker-process count for Step-2 thumbnail generation.
+
+    JPEG decode/resize/encode is CPU-bound and trivially parallel, so the
+    default (None) lets `core.ingest._resolve_thumbnail_workers` fall back
+    to `os.cpu_count()`. Set `PGDP_THUMBNAIL_WORKERS=1` to disable the
+    `ProcessPoolExecutor` and run thumbnails on a single worker thread —
+    matches the test-suite default and avoids the fork overhead on tiny
+    inputs."""
+
     # ── Mode flag (for shared GPU worker container) ──────────────────────────
     mode: Literal["full", "gpu_worker_only"] = "full"
 

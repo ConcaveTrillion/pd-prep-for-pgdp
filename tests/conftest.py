@@ -41,6 +41,21 @@ def _detect_gpu() -> bool:
 gpu_available: bool = _detect_gpu()
 
 
+@pytest.fixture(autouse=True)
+def _disable_thumbnail_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin Step-2 thumbnail generation to the single-thread path under tests.
+
+    Production default is `os.cpu_count()` worker processes for real
+    thumbnail batches, but tests use 2-6 fake pages where forking a pool
+    is pure overhead — and pytest-asyncio + `os.fork()` triggers a
+    `DeprecationWarning: multi-threaded, use of fork() may lead to
+    deadlocks in the child`. Tests that explicitly want the pool path
+    pass `thumbnail_workers=2` directly to `generate_thumbnails`, which
+    overrides this env var via `_resolve_thumbnail_workers`.
+    """
+    monkeypatch.setenv("PGDP_THUMBNAIL_WORKERS", "1")
+
+
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     return Settings(
