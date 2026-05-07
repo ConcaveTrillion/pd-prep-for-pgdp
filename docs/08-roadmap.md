@@ -213,10 +213,24 @@ now exposes the helper over HTTP. Auth/ownership mirrors `assets.py`
 end-to-end. Coverage in `tests/test_source_preview_route.py`. OpenAPI
 spec re-exported (`tests/test_openapi_spec_committed.py` green); the new
 shape is also hand-added to `frontend/src/api/types.ts` since the
-generated-types swap is still deferred. Remaining slices: a thumbnail
-endpoint (or inline JPEG render) for each previewed name, plus the
-create-project flow change to show the strip between upload completion
-and ingest dispatch.
+generated-types swap is still deferred.
+
+**Progress (2026-05-07, slice 3):** `GET /api/data/projects/{id}/source-preview/{filename}/thumbnail`
+returns a JPEG blob for one named entry inside the project's source.zip.
+Auth/ownership identical to slice 2 (404 collapses 403); unknown filenames
+and non-image entries 404 via `extract_zip_image_thumbnail`'s
+`ZipImageEntryNotFound`. Lets the SPA render `<img>` tags directly without
+JSON-shape coupling.
+
+**Progress (2026-05-07, slice 4 — shipped):** `SourcePreview` React
+component (`frontend/src/components/SourcePreview.tsx`) consumes both
+the slice-2 JSON route and the slice-3 thumbnail route. Mounted inside
+the ProjectConfigurePage ingest-in-flight banner so the user sees the
+zip's contents while unzip + thumbnails run. Vitest coverage in
+`SourcePreview.test.tsx` covers happy path, URL-encoded filenames,
+upload-not-yet-landed (404) friendly placeholder, and loading state.
+Section 8 closed; remaining preview UX iteration (e.g. lightbox on
+click) deferred to user feedback.
 
 ### 9. Vitest + msw for the SPA — acceptance met, optional follow-ups remain
 

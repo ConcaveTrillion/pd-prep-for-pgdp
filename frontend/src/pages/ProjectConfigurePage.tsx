@@ -7,6 +7,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
+import { SourcePreview } from "../components/SourcePreview";
 import { useActiveBatchJob } from "../hooks/useActiveBatchJob";
 import { useJobProgress } from "../hooks/useJobProgress";
 import type {
@@ -119,6 +120,12 @@ export function ProjectConfigurePage() {
             </Link>
           </p>
         </div>
+        {/* While ingest is in flight we can already peek inside the
+            uploaded zip via the central directory — gives the user
+            something concrete to look at instead of staring at a
+            spinner, and surfaces wrong-zip mistakes before unzip
+            finishes (roadmap §8 / P2 #8 slice 4). */}
+        <SourcePreview projectId={projectId} />
       </section>
     );
   }
