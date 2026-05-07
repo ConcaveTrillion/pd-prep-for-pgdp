@@ -27,6 +27,72 @@ _parked under "Deferred — remote / cloud mode" at the bottom._
 
 ---
 
+## P0.5 — Pipeline task-model refactor (canonical local-mode work)
+
+**Spec:** [`docs/specs/pipeline-task-model.md`](specs/pipeline-task-model.md)
+(draft 2026-05-07).
+
+User directive (2026-05-07): the current row-based pipeline (ingest /
+thumbnails / batch_process_pages / batch_extract_illustrations /
+batch_ocr / batch_text_postprocess / build_package) is too coarse-
+grained. `batch_process_pages` is a 14-sub-step monolith
+(`core/pipeline/process_page.py`); the user wants each sub-step to be
+an individually runnable, individually inspectable stage with dirty
+propagation across a DAG. The spec proposes a `page_stages` table,
+per-stage artifact storage, and a workbench artifact viewer.
+
+**Decisions needed before M1** (see spec §"Open questions"):
+
++ Q1 — `page_stages` table vs JSON-on-`pages.body`. _Recommended: table._
++ Q2 — eager vs lazy dirty propagation. _Recommended: eager._
++ Q3 — checkpoint-only vs every-intermediate artifact persistence. _Recommended: checkpoints with debug switch._
++ Q4 — manual `stage_version` registry vs auto-hash. _Recommended: manual in M2._
++ Q5 — collapse `LocalBackend` to a device-chooser. _Recommended yes, in M2._
++ Q6 — splits as config to `ocr_crop` vs first-class DAG nodes. _Recommended: config-only for M2._
++ Q7 — `text_review` as a stage with `clean` = "user marked reviewed". _Recommended: yes, gate `build_package` on it later._
+
+**Milestones:**
+
++ **M1 — Schema + DAG enumeration.** Add `page_stages` table + indexes
+  to `SqliteDatabase`. Land a `core/pipeline/dag.py` module with the
+  stage registry, dependency map, and `descendants()` helper. No UI,
+  no runner changes. Tests: schema round-trip, topological order,
+  descendants are correct for every node.
++ **M2 — Per-page stage runner backend + dirty propagation.** Each
+  stage gets a `STAGE_IMPL[stage_id][device]` callable. New
+  `POST /api/gpu/page-stage` endpoint with `mode ∈ {single, from, dirty}`.
+  Eager dirty cascade on rerun. Stage-version registry. Collapse
+  `LocalBackend` to device-chooser. Old endpoints
+  (`/api/gpu/process-page`, `/api/gpu/run-ocr-page`) become thin
+  shims onto the new endpoint.
++ **M3 — Workbench artifact viewer.** Per-page route shows the stage
+  chain with status pills + per-stage artifact thumbnails + side-by-
+  side compare. Stage-controls panel filters
+  `ResolvedPageConfig` fields by which stage reads them. SSE updates
+  per stage transition.
++ **M4 — Migration of existing projects.** Lazy-migrate on first
+  access: synthesise `page_stages` rows from legacy `processing_status`,
+  with `artifact_key` set only for stages whose legacy outputs already
+  exist on disk. Add `pgdp-prep migrate-projects --rebuild` for the
+  opt-in force-rebuild path.
++ **M5 — Project-level orchestration fan-out.** New
+  `JobType.project_run_stage_all_pages` and `project_run_dirty` that
+  dispatch per-page stage tasks under the hood. Existing
+  `batch_process_pages` etc. job rows continue to run via a
+  compatibility shim that translates them to the new model.
++ **M6 — Cleanup.** Remove the deprecated `batch_*` `JobType` values,
+  the old endpoints, and `process_page_cpu`'s monolithic body (now an
+  imperative composition of the stage registry callables for the
+  project-level "run everything CPU" code path).
+
+**Acceptance for the whole sequence:** opening a page in the workbench
+shows a stage chain with intermediate artifact images for each
+checkpoint stage. Re-running `threshold` on a page marks `invert`
+through `text_review` dirty; `build_package` skips that page until
+`page.run_dirty(idx0)` brings it back to clean.
+
+---
+
 ## P1 — UX completeness
 
 ### 9a-followup. Word-delete editor — undo/soft-delete schema decision
@@ -36,7 +102,7 @@ marquee bulk-select, a11y polish, generated-types swap) all shipped —
 see `08-roadmap-shipped.md`. One follow-up remains and is **blocked on
 a user schema decision**:
 
-- **Undo / soft-delete strategy.** The v1 endpoint hard-rewrites
++ **Undo / soft-delete strategy.** The v1 endpoint hard-rewrites
   `<root>.words.json` + `<root>.txt`, so honest single-level undo
   needs either (a) a server-side `OcrWord.deleted: bool` flag with a
   flip-restore endpoint and `remaining_words` filtered to non-deleted
