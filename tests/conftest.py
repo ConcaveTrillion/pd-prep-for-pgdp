@@ -76,3 +76,16 @@ def client(settings: Settings) -> Iterator[TestClient]:
     app = build_app(settings)
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture
+def three_page_book_zip(tmp_path: Path) -> Path:
+    """Reproducible 3-page synthetic-book zip for milestone smoke-tests.
+
+    Generated on demand via ``tests.fixtures.three_page_book`` — no binary
+    artifacts are committed to the repo. See
+    ``tests/fixtures/three_page_book.py`` for shape details.
+    """
+    from tests.fixtures.three_page_book import build_three_page_book_zip
+
+    return build_three_page_book_zip(tmp_path / "three_page_book.zip")
