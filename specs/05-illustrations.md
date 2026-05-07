@@ -79,10 +79,15 @@ Output location: `processing/hi_res_jpg/` (same as notebook). Copied to
 
 ---
 
-## Extraction Pipeline (Step 4.5)
+## Extraction Pipeline (`extract_illustrations` stage)
 
-Runs after Step 4 (proofing images) and before Step 5 (inspection). Can also
-be re-run independently.
+`extract_illustrations` is a per-page stage in the canonical DAG (see
+[`docs/specs/pipeline-task-model.md`](../docs/specs/pipeline-task-model.md)
+§Per-page stage DAG). It depends on `auto_detect_illustrations` (which
+populates suggestions onto `PageRecord.illustration_regions`) plus any
+user edits to those regions. It can be run independently from the
+workbench's stage rail or fanned out via
+`POST /api/projects/{id}/stages/extract_illustrations/run-all`.
 
 **Input:** Original source image — `processing/original_as_jpg/<stem>.jpg`
 (or the original source file if no JP2 conversion was needed, or any
@@ -430,42 +435,30 @@ thumbnail (max 400px) in the panel.
 
 ---
 
-## Integration with Step 10 — Packaging
+## Integration with `project.build_package`
 
-Step 10 already copies `hi_res_jpg/` files to `for_zip/` (notebook Step 13).
-No changes required to Step 10 itself — the illustration extraction step
-populates `hi_res_jpg/` and packaging picks them up automatically.
+`project.build_package` copies `hi_res/` files into `for_zip/`. No
+changes required to packaging itself — the `extract_illustrations`
+stage populates `hi_res/` and packaging picks them up automatically.
 
 The package summary in PackageView shows the illustration count:
+
 ```
 • 386 text files
 • 386 proofing images
-• 23 illustration files   ← from hi_res_jpg/
+• 23 illustration files   ← from hi_res/
 ```
 
 ---
 
-## Amendments to Other Specs
+## Cross-spec references
 
-**spec 00-overview.md** — Update the pipeline flow to include Step 4.5:
-```
-[4. Proofing Image Pipeline]
-         │
-         ▼
-[4.5. Illustration Extraction]  Per configured region, from original source at native res
-         │
-         ▼
-[5. Inspect] ...
-```
-
-**spec 01-book-config.md** — `IllustrationRegion` is on `PageRecord`, not on
-`ProjectConfig`. The page tagger / PageWorkbench own this surface.
-
-**spec 02-pipeline-steps.md** — Insert Step 4.5 between steps 4 and 5 with the
-`extract_illustration()` call documented above.
-
-**spec 03-ui-layout.md** — Add `IllustrationsView` as a tab between
-`PipelineView` and `InspectView`. Update the view hierarchy and tab list.
+The DAG-related parts of this spec (where `extract_illustrations` sits
+in the dependency graph, what its inputs are) are authoritatively
+defined in `docs/specs/pipeline-task-model.md`. Per-stage UI and
+workbench wiring is in `specs/06-page-workbench.md` and
+`specs/03-ui-layout.md`. `IllustrationRegion` lives on `PageRecord` —
+see `specs/01-book-config.md` and `specs/08-data-models.md`.
 
 ---
 

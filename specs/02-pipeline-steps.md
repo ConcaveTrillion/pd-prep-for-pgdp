@@ -1,583 +1,280 @@
-# Spec 02 — Pipeline Steps
+# Spec 02 — Pipeline Stages
 
-Each step reads from storage, writes to storage, and records its completion
-status in `pipeline_state` (part of `Project`). Steps can be re-run for all
-pages or a subset of pages without re-running earlier steps.
+> **Authoritative model:** the canonical pipeline shape is the per-page
+> stage DAG defined in
+> [`docs/specs/pipeline-task-model.md`](../docs/specs/pipeline-task-model.md).
+> This spec is a per-stage reference: one paragraph per stage with the
+> intent, input/output type, and dependency. For runner contracts,
+> persistence model, dirty propagation, splits, and the
+> `awaiting_review` job state, read the canonical spec.
 
-Pipeline functions live in `core/pipeline/` (spec 09) and are called from both
-the in-process FastAPI handlers and the Modal worker. Every step takes a
-`ResolvedPageConfig` (spec 01) per page rather than reaching into raw config
-layers.
+The pipeline is a **DAG of named per-page stages**. Each stage has:
 
-```python
-def run_step4_for_page(
-    project: ProjectConfig,
-    page: PageRecord,
-    cfg: ResolvedPageConfig,
-    storage: IStorage,
-    debug: bool = False,
-) -> StepResult: ...
-```
++ A stable string ID (used in DB rows, on-disk paths, and API URLs).
++ A typed input (numpy / cupy ndarray, bytes, JSON, or page-record
+  field) and a typed output (same set).
++ An explicit dependency list (other stage IDs).
++ A persisted on-disk artifact under
+  `projects/<id>/pages/<page_id>/stages/<stage_id>/output.<ext>` —
+  every stage persists, on every run (Q3, locked).
++ A row in `page_stages` keyed on `(project_id, page_id, stage_id)`
+  with `status`, `stage_version`, `config_hash`, `input_hash`.
 
-The handler builds `cfg = resolve_page_config(system, project, page)` once and
-passes it down. Pipeline code never sees `system`, `project`, or `page` raw.
+Stage callables live in a registry: `STAGE_IMPL[stage_id][device]`
+where `device ∈ {"cpu", "cuda"}`. The runner picks the device per call
+based on availability and `Settings.gpu_backend`. CPU-only stages
+register only the `"cpu"` key; mixed-device stages register both and
+the framework auto-bridges between numpy and cupy ndarrays.
 
----
-
-## Pipeline State
-
-```python
-class StepStatus(str, Enum):
-    pending  = "pending"
-    running  = "running"
-    complete = "complete"
-    error    = "error"
-
-class StepState(BaseModel):
-    status: StepStatus = StepStatus.pending
-    pages_complete: list[int] = Field(default_factory=list)
-    pages_error: dict[int, str] = Field(default_factory=dict)
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
-    job_id: str | None = None
-
-class PipelineState(BaseModel):
-    steps: dict[int, StepState] = Field(default_factory=dict)
-```
+Pipeline functions live in `core/pipeline/` (spec 09) and are called
+by both the in-process FastAPI handlers and the Modal worker. Every
+stage receives a `ResolvedPageConfig` per page rather than reaching
+into raw config layers.
 
 ---
 
-## Step 0 — Ingest
+## Project-level orchestration tasks
 
-**Purpose:** Enumerate source images, extract zip if needed, validate all
-files are readable, write initial `PageRecord` per source page.
+These are not page stages; they fan out across pages.
 
-**Input:** `project.source_uri` (folder, zip path, or S3 prefix)
+| Task | Replaces (deprecated names) | Notes |
+|---|---|---|
+| `project.ingest` | `JobType.unzip` | Zip / folder ingest — extracts source files, writes initial `PageRecord`s. |
+| `project.thumbnails` | `JobType.thumbnails` | Fans out per-page `thumbnail` stage runs. |
+| `project.run_stage_all_pages(stage_id)` | `batch_process_pages`, `batch_extract_illustrations`, `batch_ocr`, `batch_text_postprocess` | Generic — runs `stage_id` on every page that needs it. |
+| `project.run_dirty(stage_filter?)` | (new) | Runs every dirty stage on every page until clean. |
+| `project.build_package` | `build_package` | Reads completed page outputs; gated by `text_review.clean` on all proof-range pages — see canonical spec §`text_review` gate stage. |
 
-**Output:**
-
-- `source/` populated with extracted images
-- `processing/original_thumbnail/` populated (Step 1 can run after)
-- One `PageRecord` per source page written via storage adapter
-
-```python
-# If zip:
-zipfile.ZipFile(source_path).extractall(storage.source_dir)
-
-# Enumerate and sort:
-source_files = sorted(storage.list_prefix("source/"))
-
-for idx, f in enumerate(source_files):
-    img = pd_book_tools.image_processing.cv2_processing.read_image(f)
-    if img is None:
-        # Mark page as error, continue
-        ...
-    page = PageRecord(
-        project_id=project.id, idx0=idx,
-        prefix="",                                 # filled in by Step 3
-        source_stem=Path(f).stem,
-        ignore=(idx < project.proof_start_idx0
-                or idx > project.proof_end_idx0),
-    )
-    storage.put_json(f"pages/{idx}.json", page.model_dump())
-```
-
-**Errors:** unsupported file type → skip with warning. Corrupt image →
-mark page as error, continue.
+The deprecated `JobType.batch_*` names continue to work in M2–M5 as
+shims and are removed in M6.
 
 ---
 
-## Step 1 — Convert JP2 → JPG
+## Page-level stages
 
-**Purpose:** Internet Archive sources are JPEG2000. Convert all to high-quality
-JPEG. Skip if already JPG/PNG.
+### `ingest_source`
 
-**Input:** `source/*.jp2`
-**Output:** `processing/original_as_jpg/*.jpg`
-**Parallelism:** ThreadPoolExecutor, max_workers=8
+**Intent:** Persist the source bytes for a page (the original scan).
+For root pages this is a copy of the user's upload; for split-child
+pages it is the parent's source cropped to `source_crop_bbox`.
 
-```python
-img = cv2.imread(str(source_path), cv2.IMREAD_COLOR)
-cv2.imwrite(str(target_path), img, [cv2.IMWRITE_JPEG_QUALITY, 100])
-```
+**Input:** raw bytes (root) or `(parent_id, source_crop_bbox)` (child).
+**Output:** `source_image` — bytes on disk under `source/<stem>.<ext>`
+(root) or `pages/<page_id>/source.<ext>` (child).
+**Depends on:** `project.ingest` for root pages; parent's
+`split_at_stage` output for child pages.
 
-JPGs are still produced unconditionally so thumbnails (Step 2) and override
-files (Step 4a) work uniformly even when Step 4 reads JP2 directly into GPU
-memory.
+### `thumbnail`
 
----
+**Intent:** 400-px JPG for the page tagger.
 
-## Step 2 — Thumbnails
+**Input:** `source_image` (bytes).
+**Output:** `thumbnail` — JPG bytes under `thumbnails/<stem>.jpg`.
+**Depends on:** `ingest_source`.
+**Code today:** `core/ingest._make_thumbnail_bytes`.
 
-**Purpose:** 400 px JPGs for the visual page tagger.
+### `auto_detect_attrs`
 
-**Input:** `processing/original_as_jpg/*.jpg`
-**Output:** `processing/original_thumbnail/*.jpg`
-**Parallelism:** ThreadPoolExecutor (CPU count)
+**Intent:** Suggest `page_type` (blank / plate_p / normal) and
+`alignment` (default / center). Writes onto the `PageRecord` directly;
+no image artifact.
 
-```python
-from pd_book_tools.image_processing.cv2_processing import create_file_thumbnail
+**Input:** `source_image` (bytes).
+**Output:** `page_type`, `alignment` recorded on `PageRecord`.
+**Depends on:** `ingest_source`.
+**Code today:** `core/auto_detect.py`.
 
-create_file_thumbnail(
-    source_file_path=source_path,
-    target_file_path=target_path,
-    jpeg_quality=85,
-    max_dimension=400,
-)
-```
+### `auto_detect_illustrations`
 
-Thumbnails must exist before the page tagger UI loads.
+**Intent:** Run the layout detector against the source image and
+populate `PageRecord.illustration_regions` with figure / decoration /
+table boxes for the user to confirm.
 
----
+**Input:** `source_image`.
+**Output:** `illustration_regions[]` recorded on `PageRecord`.
+**Depends on:** `ingest_source`.
+**Code today:** `core/illustrations.auto_detect_illustrations`.
 
-## Step 3 — Configure (Interactive)
+### `decode_source`
 
-**Purpose:** User configures `ProjectConfig` (Book Settings accordion) and
-per-page state (`PageRecord.page_type`, `alignment`, `config_overrides`,
-`splits`, `illustration_regions`) through the visual page tagger and the
-PageWorkbench.
+**Intent:** Decode the source bytes into an in-memory image array.
+Was sub-step 4c in the old monolith. For split children, applies the
+`source_crop_bbox` slice.
 
-This step is "complete" when the user clicks **Begin Pipeline** on the
-Pipeline page (or the workbench is committed for every page that needs
-non-default treatment).
+**Input:** `source_image` (bytes).
+**Output:** `decoded_color` — BGR uint8 ndarray (numpy or cupy
+depending on dispatched device); persisted as PNG.
+**Depends on:** `ingest_source`.
+**Code today:** `cv2.imdecode` in `process_page.py:88`.
 
-**Saves:** `project.json`, `pages/<idx0>.json` (one per modified page).
+### `initial_crop`
 
-`PageRecord.prefix` is filled in here by `compute_prefix(idx0, project, pages)`
-once the proof range / frontmatter / bodymatter ranges are set.
+**Intent:** Strip scanner-frame pixels from all four edges. Reads
+`ResolvedPageConfig.initial_crop` (page-level override) or
+`initial_crop_all` (project-wide).
 
----
+**Input:** `decoded_color`.
+**Output:** `initial_cropped`.
+**Depends on:** `decode_source`.
+**Code today:** `crop_edges` (sub-step 4d).
 
-## Step 4 — Proofing Image Pipeline
+### `manual_deskew_pre`
 
-**Purpose:** The core image processing pipeline. Produces the final
-PGDP-standard proofing image for each page.
+**Intent:** Optional manual rotation before content-edge finding, for
+pages with significant scanner-frame skew. Pass-through when
+`deskew_before_crop` is None.
 
-**Input:** `processing/original_as_jpg/<stem>.jpg` (or original source)
+**Input:** `initial_cropped`.
+**Output:** `pre_deskewed`.
+**Depends on:** `initial_crop`.
+**Code today:** `rotate_image(deskew_before_crop)` (sub-step 4e).
 
-**Output:**
+### `grayscale`
 
-- `processing/proofing_images_png/<stem>_<prefix>.png` — final proofing image
-- `processing/pre_ocr_images_png/<stem>_<prefix>.png` — same image (Step 6 crops this)
-- `processing/debug_png/<stem>_<prefix>_*.png` — debug intermediates (if `debug=True`)
+**Intent:** Color → grayscale conversion.
 
-**Parallelism:** Pages run in parallel via ThreadPoolExecutor. GPU sub-steps
-serialize through the GPU executor; CPU sub-steps parallelize freely.
+**Input:** `pre_deskewed`.
+**Output:** `gray`.
+**Depends on:** `manual_deskew_pre`.
+**Code today:** `cv2_convert_to_grayscale` (sub-step 4f).
 
-The handler resolves the per-page config once:
+### `threshold`
 
-```python
-cfg = resolve_page_config(system, project, page)
-```
+**Intent:** Binarise (text=0, bg=255). Otsu when
+`ResolvedPageConfig.threshold_level is None`, manual otherwise.
 
-`cfg` is a flat `ResolvedPageConfig`. Every sub-step below reads from `cfg`.
+**Input:** `gray`.
+**Output:** `binary`.
+**Depends on:** `grayscale`.
+**Code today:** `otsu_binary_thresh` / `binary_thresh` (sub-step 4g).
 
-### 4a. Resolve source file
+### `invert`
 
-Priority order (highest first):
+**Intent:** Flip text/background polarity (text=255, bg=0). Required
+input for the edge-finder.
 
-1. `grayscale_override_png/<stem>.png`
-2. `grayscale_override_jpg/<stem>.jpg`
-3. `original_override_png/<stem>.png`
-4. `original_override_jpg/<stem>.jpg`
-5. `original_as_jpg/<stem>.jpg`
-6. `source/<stem>.jp2`
+**Input:** `binary`.
+**Output:** `inverted`.
+**Depends on:** `threshold`.
+**Code today:** `invert_image` (sub-step 4h).
 
-Override files allow the user to supply a manually pre-processed image for
-problem pages without changing pipeline parameters.
+### `find_content_edges`
 
-### 4b. Blank page handling
+**Intent:** Compute the content bbox on the inverted image. Returns
+a 4-tuple `(minX, maxX, minY, maxY)` — no image artifact, just numbers
+that flow into `crop_to_content`.
 
-```python
-if cfg.page_type in {"blank", "plate_b", "plate_r"}:
-    create_blank_proof(
-        proofing_image_file=proofing_image_path,
-        pre_ocr_target_file=pre_ocr_path,
-        h_w_ratio=cfg.page_h_w_ratio,
-    )
-    return
-```
+**Input:** `inverted`.
+**Output:** `content_bbox` (4-tuple persisted as JSON).
+**Depends on:** `invert`.
+**Code today:** `find_edges` (sub-step 4i).
 
-Sub-steps 4c–4o are skipped for blank pages.
+### `crop_to_content`
 
-### 4c. Load image directly to GPU
-
-```python
-import cupy as cp
-from nvidia import nvimgcodec
-
-decoder = nvimgcodec.Decoder()
-nv_img  = decoder.read(str(source_path))
-img_cp  = cp.asarray(nv_img)            # (H, W, 3) uint8 RGB on GPU
-```
-
-CPU fallback (no nvImageCodec):
-```python
-from pd_book_tools.image_processing.cv2_processing import read_image
-img_cp = cp.asarray(read_image(source_path))
-```
-
-### 4d. Initial crop (GPU)
-
-Removes scanner frame pixels from all four edges. Per-page override beats
-project-wide setting:
-
-```python
-from pd_book_tools.image_processing.cupy_processing import crop_edges
-
-crop = cfg.initial_crop or cfg.initial_crop_all
-L, R, T, B = crop
-img_cp = crop_edges(img_cp, top=T, bottom=B, left=L, right=R)
-```
-
-### 4e. Optional deskew before crop
+**Intent:** Crop the inverted image to the content bbox, optionally
+adding whitespace padding (`white_space_additional`).
 
-For pages with a manual `deskew_before_crop` angle override (significant
-border skew that would confuse edge-finding):
-
-```python
-if cfg.deskew_before_crop is not None:
-    from pd_book_tools.image_processing.cupy_processing import rotate_image_gpu
-    img_cp = rotate_image_gpu(img_cp, angle_deg=cfg.deskew_before_crop, cval=0)
-```
-
-### 4f. Color-to-grayscale (GPU)
-
-```python
-from pd_book_tools.image_processing.cupy_processing import cupy_colorToGray
-
-img_gray_cp = (
-    cupy_colorToGray(img_cp.astype(cp.float32) / 255.0) * 255
-).clip(0, 255).astype(cp.uint8)
-```
-
-### 4g. Threshold (GPU)
-
-```python
-from pd_book_tools.image_processing.cupy_processing import (
-    otsu_binary_thresh, binary_thresh_gpu,
-)
-
-if cfg.threshold_level is None:                     # Otsu auto
-    img_thresh_cp = (
-        otsu_binary_thresh(img_gray_cp.astype(cp.float32) / 255.0) * 255
-    ).astype(cp.uint8)
-else:
-    img_thresh_cp = binary_thresh_gpu(img_gray_cp, level=cfg.threshold_level)
-```
-
-`text=0`, `bg=255` after this step.
-
-### 4h. Invert (GPU)
-
-```python
-from pd_book_tools.image_processing.cupy_processing import invert_image
-img_inv_cp = invert_image(img_thresh_cp)            # text=255, bg=0
-```
-
-### 4i. Find content edges (GPU)
-
-Two modes: pixel-based (default) and OCR-bbox-based. OCR-bbox requires GPU
-DocTR and falls back to pixel-based when DocTR finds fewer than
-`cfg.ocr_bbox_edge_min_words` words.
-
-```python
-from pd_book_tools.image_processing.cupy_processing import find_edges_gpu
-from pd_book_tools.image_processing.gpu_utils import gpu_available
-
-use_ocr_bbox = cfg.use_ocr_bbox_edge and gpu_available()
-
-result = None
-if use_ocr_bbox:
-    from pd_book_tools.image_processing.ocr_edge_finding import find_edges_from_ocr_bboxes
-    result = find_edges_from_ocr_bboxes(
-        img_thresh=cp.asnumpy(img_thresh_cp),
-        predictor=get_doctr_predictor(cfg.ocr_model_key),
-        min_words=cfg.ocr_bbox_edge_min_words,
-    )
-
-if result is not None:
-    minX, maxX, minY, maxY = result
-else:
-    minX, maxX, minY, maxY = find_edges_gpu(
-        img_cp=img_inv_cp,
-        fuzzy_pct=cfg.fuzzy_pct,
-        pixel_count_columns=cfg.pixel_count_columns,
-        pixel_count_rows=cfg.pixel_count_rows,
-    )
-```
-
-### 4j. Crop to content (GPU)
-
-```python
-from pd_book_tools.image_processing.cupy_processing import (
-    crop_to_rectangle, add_whitespace_percentage_gpu,
-)
-
-img_cropped_cp = crop_to_rectangle(img_inv_cp, minX, maxX, minY, maxY)
-
-if cfg.white_space_additional is not None:
-    img_cropped_cp = add_whitespace_percentage_gpu(
-        img_cropped_cp, *cfg.white_space_additional
-    )
-```
-
-### 4k. Auto-deskew (GPU)
-
-Skip when `cfg.skip_auto_deskew` is set, or for pages whose alignment is not
-default, or for `single_dimension_rescale` / `rotated_standard` pages.
-
-```python
-from pd_book_tools.image_processing.cupy_processing import auto_deskew_gpu, rotate_image_gpu
-
-if cfg.deskew_after_crop is not None:
-    img_deskewed_cp = rotate_image_gpu(img_cropped_cp, angle_deg=cfg.deskew_after_crop, cval=0)
-elif cfg.skip_auto_deskew or cfg.alignment != "default" \
-     or cfg.single_dimension_rescale or cfg.rotated_standard:
-    img_deskewed_cp = img_cropped_cp
-else:
-    img_deskewed_cp, _, _ = auto_deskew_gpu(img_cropped_cp, pct=0.30)
-```
-
-### 4l. Morph fill (GPU, optional)
-
-```python
-from pd_book_tools.image_processing.cupy_processing import morph_fill
-if cfg.do_morph:
-    img_deskewed_cp = morph_fill(img_deskewed_cp)
-```
-
-### 4m. Re-invert and rescale to standard page size
-
-```python
-from pd_book_tools.image_processing.cupy_processing import rescale_image_gpu
-
-img_rescaled_cp = rescale_image_gpu(
-    invert_image(img_deskewed_cp),                  # back to text=0, bg=255
-    target_short_side=1000,
-)
-# Aspect-shape is applied downstream in step 4n via
-# map_content_onto_scaled_canvas(..., height_width_ratio=cfg.page_h_w_ratio).
-```
-
-### 4n. Map onto standard canvas (GPU)
-
-```python
-from pd_book_tools.image_processing.cupy_processing import map_content_onto_scaled_canvas_gpu
-from pd_book_tools.image_processing.cv2_processing import Alignment
-
-alignment = {
-    "default": Alignment.DEFAULT,
-    "top":     Alignment.TOP,
-    "center":  Alignment.CENTER,
-    "bottom":  Alignment.BOTTOM,
-}[cfg.alignment]
-
-img_final_cp = map_content_onto_scaled_canvas_gpu(
-    img_rescaled_cp,
-    force_align=alignment,
-    height_width_ratio=cfg.page_h_w_ratio,
-)
-```
-
-### 4o. Transfer to CPU and write output
-
-```python
-from pd_book_tools.image_processing.cv2_processing import write_png
-from pd_book_tools.image_processing.external_tools import run_optipng
-
-img_final = cp.asnumpy(img_final_cp)
-write_png(img_final, proofing_image_path)
-write_png(img_final, pre_ocr_path)
-run_optipng(proofing_image_path)
-run_optipng(pre_ocr_path)
-```
-
-### 4p. Apply page splits
-
-When `page.splits` is non-empty, each `PageSplit` becomes an independent
-output page. Source coordinate space is the deskewed image (4k output) by
-convention; the workbench draws on that same image.
-
-```python
-for split in sorted(page.splits, key=lambda s: s.reading_order):
-    section_prefix = f"{page.prefix}{split.suffix}"
-
-    L = split.L or 0
-    R = split.R if split.R is not None else img_rescaled_cp.shape[1]
-    T = split.T or 0
-    B = split.B if split.B is not None else img_rescaled_cp.shape[0]
-    img_section_cp = img_rescaled_cp[T:B, L:R]
-
-    if split.scale_to_standard_page:
-        img_section_cp = map_content_onto_scaled_canvas_gpu(
-            img_section_cp,
-            force_align=Alignment[
-                (split.alignment or cfg.alignment).upper()
-            ],
-            height_width_ratio=cfg.page_h_w_ratio,
-        )
-
-    img_section = cp.asnumpy(img_section_cp)
-    section_proofing = proofing_dir / f"{page.source_stem}_{section_prefix}.png"
-    section_pre_ocr  = pre_ocr_dir  / f"{page.source_stem}_{section_prefix}.png"
-    write_png(img_section, section_proofing)
-    write_png(img_section, section_pre_ocr)
-    run_optipng(section_proofing)
-    run_optipng(section_pre_ocr)
-```
-
-Each split becomes a `PageOutput` entry on the page record. The unsplit source
-page is also written for inspection but flagged `is_section_source=True`;
-packaging skips those.
-
-`PageOutput` ordering on the page record matches `reading_order`. Packaging
-iterates outputs across pages in idx0 order, so split pages stay in
-document sequence (`p020a`, `p020b` between `p019` and `p021`).
-
----
-
-## Step 4.5 — Illustration Extraction
-
-Spec 05 covers the algorithm and data model. Layout detection lives in
-``pd_book_tools.layout`` — the protocol, registry, and the single shipping
-model adapter (``pp-doclayout-plus-l``) all live in the shared library so
-this step (illustration crops) and Step 7 (OCR + reorg) consume the same
-:class:`PageLayout`.
-
-Per page, for each ``page.illustration_regions[i]``, crop the region from
-the **original source image** at native resolution and write to
-``processing/hi_res_jpg/``. When the user has not yet curated regions for a
-page, ``get_detector(...).detect(source_path)`` produces a
-:class:`PageLayout`; the figure / decoration / table regions in that
-layout populate the suggestion list.
-
-Plate pages (``page_type == "plate_p"``) automatically synthesise a
-full-page region if none is configured.
-
-**Input:** `processing/original_as_jpg/<stem>.jpg` (or override source)
-**Output:** `processing/hi_res_jpg/i_<prefix>_<n>.<ext>`
-
-```python
-from pd_book_tools.layout import get_detector
-from pd_book_tools.layout.types import RegionType
-from core.illustrations import extract_illustration
-
-# Auto-suggest from the layout model when the page has no curated regions.
-if not page.illustration_regions:
-    detector = get_detector(cfg.layout_detector)  # cached per process
-    layout = detector.detect(source_path)
-    suggested = [
-        r for r in layout.regions
-        if r.type in {RegionType.figure, RegionType.decoration, RegionType.table}
-    ]
-    page.illustration_regions = [as_illustration_region(r) for r in suggested]
-
-for region in page.illustration_regions:
-    output_path = hi_res_dir / illustration_filename(page.prefix, region)
-    extract_illustration(source_path, region, output_path)
-```
-
----
-
-## Step 5 — Inspect Proofing Images (Interactive)
-
-User reviews proofing images. Anomalies are fixed by:
-
-1. Adjusting `PageRecord.config_overrides` (per-page) and re-running Step 4
-   for affected pages.
-2. Placing a manual override image in `original_override_*/` and re-running.
-
-Completion: user clicks "Approve Proofing Images".
-
----
-
-## Step 6 — Crop for OCR
-
-**Purpose:** Apply a uniform crop before OCR to remove running headers,
-page numbers, decorative borders.
-
-**Input:** `processing/pre_ocr_images_png/<stem>_<prefix>.png`
-**Output:** `processing/ocr_images_png/<stem>_<prefix>.png`
-
-```python
-from pd_book_tools.image_processing.cv2_processing import crop_edges
-
-if page_should_skip_ocr_crop(page, cfg):
-    shutil.copyfile(pre_ocr_path, ocr_path)
-else:
-    img = read_image(pre_ocr_path)
-    top, bottom, left, right = cfg.ocr_crop
-    img = crop_edges(img, top=top, bottom=bottom, left=left, right=right)
-    write_png(img, ocr_path)
-```
-
-`page_should_skip_ocr_crop()` returns True for blank pages, plate-P pages,
-non-default alignment, `rotated_standard`, `single_dimension_rescale`, or
-when the page has splits (sections are already tightly bounded).
-
----
-
-## Step 7 — OCR
-
-**Input:** `processing/ocr_images_png/<stem>_<prefix>.png`
-**Output:** `processing/ocr_text/<stem>_<prefix>.txt`
-
-```python
-from pd_book_tools.layout import get_detector
-from pd_book_tools.ocr.document import Document
-
-if page_is_blank(page):
-    target_text_file.write_text("[Blank Page]\n")
-    continue
-
-# Reuse the cached detector from Step 4.5; a single forward pass per page
-# feeds both illustration extraction and reorg. PageLayout is per-page and
-# stays in memory for the duration of this step.
-layout = None
-if cfg.layout_detector and cfg.layout_detector != "none":
-    layout = get_detector(cfg.layout_detector).detect(source_path)
-
-if cfg.ocr_engine == "doctr":
-    img = read_image(ocr_image_path)
-    predictor = get_doctr_predictor(cfg.ocr_model_key)
-    doc = Document.from_image_ocr_via_doctr(img, source_identifier=page.prefix, predictor=predictor)
-    page_obj = doc.pages[0]
-    page_obj.reorganize_page(layout=layout)  # layout-aware when supplied
-    text = doc_to_pgdp_text(doc)
-elif cfg.ocr_engine == "tesseract":
-    from pd_book_tools.ocr.cv2_tesseract import tesseract_ocr_cv2_image
-    img = read_image(ocr_image_path)
-    p = tesseract_ocr_cv2_image(img, source_path=str(ocr_image_path))
-    p.reorganize_page(layout=layout)
-    text = page_to_pgdp_text(p)
-
-target_text_file.write_text(text)
-```
-
-DocTR runs on GPU (when available) and serializes through the GPU executor.
-Tesseract uses ThreadPoolExecutor (max_workers=8).
-
-When ``cfg.layout_detector`` is set, ``Page.reorganize_page(layout=…)``
-strips high-confidence header / footer / footnote / abandoned regions
-**before** the geometric reorg pipeline runs, then attaches caption blocks
-to figure / decoration / table regions **after**. Layout is treated as a
-hint — the geometric heuristics in ``reorganize_page_utils.py`` still run
-as the safety net, so a noisy model never makes output worse than it would
-be without layout. See spec 05 for the detector list and PP-DocLayout
-category mapping.
-
-`doc_to_pgdp_text` / `page_to_pgdp_text` convert the structured OCR output
-into PGDP plain text: words separated by spaces, lines by newlines,
-paragraphs by blank lines.
-
----
-
-## Step 8 — Text Post-Processing (Automated)
-
-Sequential regex passes against all OCR text files. The standard scanno list
-and hyphenation join list come from `SystemDefaults`; book-specific entries
-come from `ProjectConfig`.
+**Input:** `inverted` + `content_bbox`.
+**Output:** `content_cropped`.
+**Depends on:** `find_content_edges` (which depends on `invert`).
+**Code today:** `crop_to_rectangle` + `add_whitespace_percentage`
+(sub-step 4j).
+
+### `auto_deskew`
+
+**Intent:** Auto-deskew on the cropped content. Pass-through when
+`skip_auto_deskew`, when `alignment` is non-default, or when
+`rotated_standard` / `single_dimension_rescale` is set.
+
+**Input:** `content_cropped`.
+**Output:** `auto_deskewed`.
+**Depends on:** `crop_to_content`.
+**Code today:** `auto_deskew` (sub-step 4k).
+
+### `morph_fill`
+
+**Intent:** Optional morphological fill to close hairline breaks in
+glyphs. Pass-through when `do_morph` is False.
+
+**Input:** `auto_deskewed`.
+**Output:** `morphed`.
+**Depends on:** `auto_deskew`.
+**Code today:** `morph_fill` (sub-step 4l).
+
+### `rescale`
+
+**Intent:** Re-invert (text=0, bg=255) and rescale to canonical short
+side (1000 px).
+
+**Input:** `morphed`.
+**Output:** `rescaled`.
+**Depends on:** `morph_fill`.
+**Code today:** `rescale_image(target_short_side=1000)` (sub-step 4m).
+
+### `canvas_map`
+
+**Intent:** Map content onto a canonical-aspect canvas with the
+configured alignment. Produces the final proofing image.
+
+**Input:** `rescaled`.
+**Output:** `proofing_image` (PNG bytes; the file ultimately referenced
+by the legacy `processed_image_key`).
+**Depends on:** `rescale`.
+**Code today:** `map_content_onto_scaled_canvas` + `cv2.imencode`
+(sub-steps 4n + 4o).
+
+### `blank_proof_synth`
+
+**Intent:** Replacement for stages `decode_source` → `morph_fill` for
+`page_type ∈ {blank, plate_b, plate_r}`. Synthesises a canonical
+blank PNG without running the cropping/deskew chain. Stages
+`decode_source` … `morph_fill` are recorded as `not-applicable` for
+these pages.
+
+**Input:** `page_type`, `page_h_w_ratio` from `auto_detect_attrs`.
+**Output:** `proofing_image`.
+**Depends on:** `auto_detect_attrs`.
+**Code today:** `core/pipeline/blank_proof.py`.
+
+### `ocr_crop`
+
+**Intent:** Apply the project-wide OCR border crop (top/bottom/left/right)
+to the proofing image. Pass-through for blank/plate-p/non-default-
+alignment/rotated-standard pages. **Splits are no longer handled here**
+— they are sibling pages with their own DAG state.
+
+**Input:** `proofing_image`.
+**Output:** `ocr_image` (single PNG per page; one row per child page
+after split).
+**Depends on:** `canvas_map` (or `blank_proof_synth`).
+**Code today:** `core/pipeline/crop_for_ocr.py`.
+
+### `extract_illustrations`
+
+**Intent:** Per `IllustrationRegion`, crop the region from the
+**original source image** at native resolution and write to
+`hi_res/<prefix>_<NN>.<ext>`. Plate pages auto-synthesise a full-page
+region.
+
+**Input:** `source_image` + `illustration_regions[]`.
+**Output:** `hi_res_crops[]` (one file per region).
+**Depends on:** `auto_detect_illustrations` plus any user edits to
+`illustration_regions`.
+**Code today:** `core/illustrations.extract_illustration`.
+
+### `ocr`
+
+**Intent:** Run DocTR (or Tesseract) on the OCR-cropped image and
+produce structured OCR output (per-word boxes + raw text).
+
+**Input:** `ocr_image`.
+**Output:** `ocr_words[]` (JSON), raw `ocr_text` (txt).
+**Depends on:** `ocr_crop`.
+**Code today:** `core/ocr.py`.
+
+### `text_postprocess`
+
+**Intent:** Sequential regex passes against raw OCR text:
 
 | Pass | Description | Source |
 |---|---|---|
@@ -590,42 +287,139 @@ come from `ProjectConfig`.
 | 7. Custom scannos | `project.custom_scannos` | project |
 | 8. Custom regex | `project.custom_regex_passes` | project |
 
-CPU only. ThreadPoolExecutor across files.
+**Input:** raw `ocr_text`.
+**Output:** final `ocr_text`.
+**Depends on:** `ocr`.
+**Code today:** `core/text_postprocess.py`.
+
+### `text_review`
+
+**Intent:** Human attestation gate. Status `not-run` (default) or
+`dirty` until the user clicks "Mark page reviewed" in the workbench;
+then `clean`. Re-running upstream stages flips this back to `dirty`,
+forcing re-attestation.
+
+**Input:** final `ocr_text`.
+**Output:** reviewed `ocr_text` plus an attestation timestamp on the
+page record.
+**Depends on:** `text_postprocess`.
+**Surface:** `POST /api/pages/{page_id}/text_review/clean`. There is
+no automated path that flips `text_review` to `clean`.
+
+`build_package` is gated by every proof-range page being
+`text_review.clean`. When unsatisfied, the project-level
+`build_package` job lands in the `awaiting_review` state — see
+`docs/specs/pipeline-task-model.md` §`text_review` as gate stage with
+awaiting-review UX for the full workflow.
 
 ---
 
-## Step 9 — Text Review (Interactive)
+## DAG (fan-in / fan-out)
 
-User reviews OCR text side-by-side with proofing images. Allows:
-
-- Direct text editing (writes via `PATCH /api/data/projects/{id}/pages/{idx0}/text`)
-- Ad-hoc regex passes with preview
-- `find_mismatched_dashes()` across all files
-
-Completion: user clicks "Approve Text".
-
----
-
-## Step 10 — Package
-
-```python
-import shutil, zipfile
-
-for page in pages:
-    for output in page.outputs:
-        if output.is_section_source:
-            continue
-        shutil.copyfile(output.proofing_image_path, for_zip / f"{output.full_prefix}.png")
-        shutil.copyfile(output.ocr_text_path,       for_zip / f"{output.full_prefix}.txt")
-
-# Hi-res illustrations:
-for f in hi_res_dir.iterdir():
-    shutil.copyfile(f, for_zip / f.name)
-
-with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-    for f in sorted(for_zip.iterdir()):
-        zf.write(f, arcname=f.name)
+```
+ingest_source ─┬─ thumbnail
+               ├─ auto_detect_attrs ──→ blank_proof_synth ─→ proofing_image
+               ├─ auto_detect_illustrations ─→ extract_illustrations
+               └─ decode_source ─→ initial_crop ─→ manual_deskew_pre
+                                                          ↓
+                                                       grayscale
+                                                          ↓
+                                                       threshold
+                                                          ↓
+                                                       invert ─→ find_content_edges
+                                                          ↓             ↓
+                                                          └→ crop_to_content
+                                                                  ↓
+                                                              auto_deskew
+                                                                  ↓
+                                                               morph_fill
+                                                                  ↓
+                                                               rescale
+                                                                  ↓
+                                                            canvas_map ─→ proofing_image
+                                                                  ↓
+                                                              ocr_crop
+                                                                  ↓
+                                                                 ocr
+                                                                  ↓
+                                                          text_postprocess
+                                                                  ↓
+                                                             text_review ─→ (project) build_package
 ```
 
-The zip is offered as a download in the UI (`GET /api/data/projects/{id}/assets/download-url`
-with `key=for_zip/<book_name>_pgdp.zip`).
+`canvas_map` and `blank_proof_synth` are alternative producers of
+`proofing_image` (one runs per page, depending on `page_type`).
+
+---
+
+## Step-numbered legacy mapping
+
+The original "step 0..10" numbering is preserved here for transition
+purposes. Anyone reading the codebase under the old labels should map
+them to the new stage IDs:
+
+| Legacy step | New stage(s) |
+|---|---|
+| Step 0 — Ingest | `project.ingest` (project-level) → per-page `ingest_source` |
+| Step 1 — JP2→JPG | Folded into `decode_source` (cv2 handles JP2 directly) |
+| Step 2 — Thumbnails | `thumbnail` |
+| Step 3 — Configure (interactive) | `auto_detect_attrs` + `auto_detect_illustrations` writes; UI for `PageRecord` editing |
+| Step 4 (4c–4o) — Process page | `decode_source` → `initial_crop` → `manual_deskew_pre` → `grayscale` → `threshold` → `invert` → `find_content_edges` → `crop_to_content` → `auto_deskew` → `morph_fill` → `rescale` → `canvas_map` |
+| Step 4b — Blank proof | `blank_proof_synth` |
+| Step 4p — Apply page splits | **Splits are sibling pages now** (see canonical spec §Splits as sibling pages); each split-child runs its own DAG. |
+| Step 4.5 — Illustrations | `extract_illustrations` |
+| Step 5 — Inspect (interactive) | UI surfaces over `text_review.not-run` page filter |
+| Step 6 — Crop for OCR | `ocr_crop` |
+| Step 7 — OCR | `ocr` |
+| Step 8 — Text post-processing | `text_postprocess` |
+| Step 9 — Text review (interactive) | `text_review` (gate stage) |
+| Step 10 — Package | `project.build_package` (project-level, with `awaiting_review` gate) |
+
+`PipelineState` (the legacy `dict[StepId, StepState]` rolled-up view)
+is recomputed from `page_stages` at read time; see spec 08.
+
+---
+
+## Re-run modes (per-page)
+
++ **`page.run_stage(page_id, stage_id)`** — runs *only* `stage_id`. The
+  framework lazy-loads its inputs from the nearest persisted upstream
+  output, executes in memory, queues the deferred write, and marks
+  every downstream stage `dirty`.
++ **`page.run_from(page_id, stage_id)`** — runs `stage_id` and walks
+  downstream in topological order, holding intermediates in memory.
++ **`page.run_dirty(page_id)`** — runs every dirty stage in DAG order.
+  Skips `not-applicable`. The default action behind the workbench's
+  "Run all dirty stages on this page" button.
+
+---
+
+## Re-run modes (project-level)
+
++ **`project.run_stage_all_pages(stage_id, only_dirty=True)`** — runs
+  one stage on every page that needs it. Replaces the deprecated
+  `JobType.batch_process_pages` / `batch_ocr` /
+  `batch_text_postprocess` / `batch_extract_illustrations`.
++ **`project.run_dirty(stage_filter?)`** — runs every dirty stage on
+  every page until clean. Optional stage filter narrows the sweep
+  (e.g. "only run OCR-related stages").
++ **`project.build_package`** — packages reviewed pages. Lands in
+  `awaiting_review` if any proof-range page is unreviewed.
+
+---
+
+## Persistence
+
+Every stage's output is persisted on every run (Q3 locked). On-disk
+layout:
+
+```
+projects/<id>/pages/<page_id>/stages/<stage_id>/output.<ext>
+projects/<id>/pages/<page_id>/manifest.json
+```
+
+`page_id` is the zero-padded `idx0` for root pages, with a
+`/splits/<suffix>` chain for split children. See
+`docs/specs/pipeline-task-model.md` §Persistence model and
+spec 08 §Storage Layout for the full scheme and dual-write
+reconciliation rules.
