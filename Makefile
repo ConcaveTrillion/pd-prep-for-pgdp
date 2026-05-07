@@ -76,11 +76,27 @@ reset: clean remove-venv setup ## Rebuild the virtual environment
 	@echo "✅ Environment Reset!"
 
 upgrade-deps: ## Upgrade dependencies and sync local environment
+	@if uv run --no-sync python scripts/detect_dev_local.py >/dev/null 2>&1; then \
+		echo "❌ dev-local install detected (editable pd-book-tools)."; \
+		echo "   'make upgrade-deps' would silently revert it to the pinned tag."; \
+		echo "   Use 'make upgrade-deps-local' to upgrade and re-install editable."; \
+		echo "   Or set PD_DEV_LOCAL=0 and run 'make reset' to switch to canonical."; \
+		exit 1; \
+	fi
 	@echo "⬆️ Upgrading dependency lockfile..."
 	uv lock --upgrade
 	@echo "📦 Syncing upgraded dependencies..."
 	uv sync --group dev
 	@echo "✅ Dependencies upgraded and environment synced!"
+
+upgrade-deps-local: ## [local-dev] Upgrade deps then restore editable pd-book-tools
+	@echo "⬆️ Upgrading dependency lockfile..."
+	uv lock --upgrade
+	@echo "📦 Syncing upgraded dependencies..."
+	uv sync --group dev
+	@echo "🔁 Restoring editable pd-book-tools sibling install..."
+	@$(MAKE) --no-print-directory dev-local
+	@echo "✅ Dependencies upgraded; editable pd-book-tools restored."
 
 upgrade-pd-book-tools: ## Pin pd-book-tools to its latest GitHub tag
 	@echo "🔍 Fetching latest pd-book-tools tag..."
@@ -257,11 +273,13 @@ dev-local: ## [local-dev] Install pd-book-tools editable from ../pd-book-tools
 	$(call _require_peer_book_tools)
 	UV_LINK_MODE=copy uv sync --group dev
 	UV_LINK_MODE=copy uv pip install -e "$(PEER_BOOK_TOOLS)"
+	@mkdir -p .venv && touch .venv/.dev-local
 	@$(MAKE) --no-print-directory check-local-editable
 
 install-local: ## [local-dev] Install pgdp-prep with both . and ../pd-book-tools editable
 	$(call _require_peer_book_tools)
 	UV_LINK_MODE=copy uv tool install --force --reinstall --no-sources --editable . --with-editable "$(PEER_BOOK_TOOLS)"
+	@mkdir -p .venv && touch .venv/.dev-local
 	@echo "✅ 'pgdp-prep' is on PATH and tracks ./ + $(PEER_BOOK_TOOLS) live."
 
 uninstall-local: ## [local-dev] Uninstall the local-editable pgdp-prep tool

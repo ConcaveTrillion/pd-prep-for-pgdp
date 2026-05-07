@@ -196,3 +196,21 @@ the active roadmap by oversight; moved here for accuracy.
 
 - Hook lives at `.pre-commit-config.yaml:25-32`; predates the
   `08-roadmap.md` / `08-roadmap-shipped.md` split (commit `92fa185`).
+
+## §28 — Guard `upgrade-deps` against silent dev-local revert
+
+`scripts/detect_dev_local.py` exits 0 when an editable `pd-book-tools`
+install is present (precedence: `uv pip show` "Editable project
+location:" line → `.venv/.dev-local` marker → `PD_DEV_LOCAL=1` env
+override). `make upgrade-deps` now refuses with a clear message in
+dev-local mode and points at the new `make upgrade-deps-local`
+recipe, which performs `uv lock --upgrade` + `uv sync --group dev`
+and then re-runs `make dev-local` to restore the editable sibling.
+`make dev-local` and `make install-local` write the `.venv/.dev-local`
+marker; `make remove-venv` (and therefore `reset`) drops it with the
+venv. Canonical-mode behavior unchanged.
+
+Spec: `docs/dev-local-upgrade-flow.md`. Tests: 13 in
+`tests/test_detect_dev_local.py` exercising the script with a faked
+`uv` on PATH (subprocess shells to `python scripts/detect_dev_local.py`
+in a tmp dir with a stub `uv` shell script + isolated `.venv/`).
