@@ -19,9 +19,38 @@ flow is fully shipped.
 
 ## P0 — local-mode user flow gaps
 
-(Currently empty — the previous P0 entries were all cloud/remote
-prerequisites and have been moved to the Deferred section. Local-mode
-gaps surfaced by usage testing land here when found.)
+### L1. Local-mode port auto-select fallback for `pgdp-prep`
+
+**Motivation:** Today `pgdp-prep` binds to a hardcoded port (8765) and
+dies if anything else is on that port — including stale orphaned
+processes. Hit in the wild on 2026-05-07 when a 21-hour-old
+`python3 -m http.server 8765` blocked startup. For local-mode dev UX
+the server should fall back to an OS-assigned free port instead of
+crashing.
+
+**Proposed behavior (local backend only):**
+
+1. Try the configured default port (8765) first — preserves the
+   bookmarkable URL and any docs/screenshots referencing it.
+2. If `EADDRINUSE`, fall back to `port=0` (kernel picks a free port).
+   Print the actually-chosen URL clearly on stdout (and use it for the
+   browser-open hand-off).
+3. If the user passes `--port N` explicitly, fail loud on collision —
+   explicit intent, no fallback.
+4. Self-hosted / managed adapters: out of scope for this slice; keep
+   their current explicit-port behavior.
+
+**Acceptance:**
+
+- Tests cover: default-port-free (binds 8765), default-port-taken-fallback
+  (binds OS-assigned, logs chosen URL), explicit-`--port`-collision
+  (raises / exits non-zero, no fallback).
+- Stale-process scenario from 2026-05-07 is recoverable without `kill`.
+
+**Cross-link:** sibling repo `pd-ocr-labeler-spa` has the matching
+roadmap item for symmetry. Its commit `7c084ce` already moved the
+listener-bind ahead of the browser-open call; port auto-select is the
+next step there. Same design should apply to both apps.
 
 ---
 
