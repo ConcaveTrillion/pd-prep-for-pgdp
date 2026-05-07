@@ -11,8 +11,14 @@
 // switch this file to use `mergeConfig` from vitest/config and import
 // vite.config.ts.
 import { defineConfig } from "vitest/config";
+import tsconfigPaths from "vite-tsconfig-paths";
 
 export default defineConfig({
+  // tsconfig-paths plugin runs at module-resolution time so test files
+  // can use the same `@/*` aliases as production code without importing
+  // vite.config.ts (which would re-trigger the Vite 6 / Vitest 2
+  // type-collision documented above).
+  plugins: [tsconfigPaths()],
   test: {
     environment: "jsdom",
     globals: true,

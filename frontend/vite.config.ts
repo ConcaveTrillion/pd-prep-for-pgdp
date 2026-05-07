@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tsconfigPaths from "vite-tsconfig-paths";
 
 // FastAPI proxies /api/* during `npm run dev`. The dev server runs on :5173;
 // the user starts FastAPI separately with `pgdp-prep --frontend-dev http://localhost:5173`.
@@ -9,7 +10,7 @@ import react from "@vitejs/plugin-react";
 // project's Vite 6 type-wise. The runtime is fine, but tsc -b chokes; a
 // separate file sidesteps the type collision cleanly.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tsconfigPaths()],
   server: {
     port: 5173,
     proxy: {

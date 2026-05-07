@@ -67,14 +67,13 @@ for local; Postgres has built-in TS.
 ### 13a. Adopt shadcn/ui + Radix and close the spec/code divergence
 
 `specs/00-overview.md:57,126` and `specs/03-ui-layout.md:5,404` name
-shadcn/ui (Radix-backed) as the intended component library. **Steps 1,
-1b, and 2 shipped** (see `08-roadmap-shipped.md` §13a):
-`@radix-ui/react-dialog` + the `Dialog` wrapper retired the hand-rolled
-ProjectListPage overlay (`0b6d30e`); `@radix-ui/react-alert-dialog` +
-the `AlertDialog` wrapper retired the inline delete-project confirm;
-`sonner` + the `<Toaster>` at the app root + the side-effect-only
-`<FormErrorBanner>` retired the inline red error bodies in
-TextReviewPage and the ProjectListPage create modal.
+shadcn/ui (Radix-backed) as the intended component library.
+**Steps 1, 1b, 2, and 3 shipped** (see `08-roadmap-shipped.md` §13a):
+Radix Dialog and AlertDialog wrappers retired the hand-rolled
+ProjectListPage modal + delete confirm; `sonner` + `<Toaster>` at the
+app root + the side-effect-only `<FormErrorBanner>` retired the inline
+red error bodies; `vite-tsconfig-paths` + `@/*` paths replaced the
+need for `../../` import chains as the tree deepens.
 
 Remaining open work (no prescribed milestone, pick whichever pairs
 with the next slice that touches its surface):
@@ -89,10 +88,6 @@ with the next slice that touches its surface):
    scope checks against `tagName` and `contentEditable` (tick 22 / 24);
    a hook layer would fold that into a reusable scope and leave room
    for Prev/Next-page bindings on `PageWorkbenchPage`.
-3. **`vite-tsconfig-paths`** + `tsconfig` `paths` aliases so imports
-   become `@/components/...`, `@/api/client`, `@/lib/marquee` instead
-   of `../../api/client` chains. Cosmetic, but pays off as the
-   component tree deepens.
 
 ---
 

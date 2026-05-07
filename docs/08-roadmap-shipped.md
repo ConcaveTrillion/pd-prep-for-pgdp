@@ -438,3 +438,29 @@ project name + scroll-lock, Delete fires `DELETE
 /api/data/projects/:id`, Cancel does not.
 
 - `<TBD>` feat(frontend): adopt Radix AlertDialog for delete confirm (§13a step 1b)
+
+---
+
+## §13a step 3 — `vite-tsconfig-paths` + `@/*` aliases
+
+Adds `vite-tsconfig-paths@^6` as a dev-dep and registers it as a Vite
+plugin in both `vite.config.ts` and `vitest.config.ts`. Declares
+`baseUrl: "."` + `paths: { "@/*": ["src/*"] }` in `tsconfig.app.json`
+so editor tooling, the production build, and the test runner all
+resolve `@/components/...` / `@/lib/...` / `@/api/client` to the same
+`src/...` files.
+
+Wiring caveat: `vitest.config.ts` deliberately does NOT import
+`vite.config.ts` to dodge the documented Vite 6 ↔ Vitest 2 type
+collision (the comment block in both configs is the long-form
+explanation). `vite-tsconfig-paths` is registered standalone in each
+config — it has no React-typing dependency so it dodges the collision.
+
+A smoke test at `src/test/tsconfigPaths.smoke.test.ts` imports through
+the alias and asserts the export resolves; it's the canary for any
+future refactor that drops the `paths` block or unwires the plugin.
+The current frontend tree is shallow enough that there are no
+existing `../../` chains to convert — the alias is preparatory
+infrastructure for the deeper component tree to come.
+
+- `<TBD>` chore(frontend): add vite-tsconfig-paths + `@/*` aliases (§13a step 3)
