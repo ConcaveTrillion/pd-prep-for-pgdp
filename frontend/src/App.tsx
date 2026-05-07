@@ -8,6 +8,7 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { api, getAuthToken, setAuthToken } from "./api/client";
+import { decodeJwtSub } from "./lib/jwtClaims";
 import { JobsPage } from "./pages/JobsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ProjectListPage } from "./pages/ProjectListPage";
@@ -160,17 +161,4 @@ function AuthBadge() {
     );
   }
   return null;
-}
-
-function decodeJwtSub(token: string): string | null {
-  try {
-    const part = token.split(".")[1];
-    if (!part) return null;
-    const padded = part.replace(/-/g, "+").replace(/_/g, "/");
-    const json = atob(padded);
-    const claims = JSON.parse(json);
-    return typeof claims.sub === "string" ? claims.sub : null;
-  } catch {
-    return null;
-  }
 }
