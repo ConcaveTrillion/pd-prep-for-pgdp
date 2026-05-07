@@ -79,8 +79,10 @@ make frontend-build && uv run pgdp-prep
   from that section without an explicit user nudge.
 - `pd-book-tools` is pinned to `v0.9.0` in `pyproject.toml`. Upgrade with
   `make upgrade-pd-book-tools`.
-- `gpu_backend="cpu"` is the test default. `LocalBackend`/`ModalBackend` etc.
-  exist as classes but raise `NotImplementedError` until called with real
+- `gpu_backend="cpu"` is the test default. `LocalBackend` is a thin
+  subclass of `CpuBackend` (DocTR/PyTorch auto-pick `cuda:0` when
+  available, so the CPU code path serves GPU users transparently);
+  `ModalBackend` / `SharedContainerBackend` still require real
   configuration.
 - Data API permissions: every route filters by `user.user_id` so flipping
   `auth_mode` from `none` → `jwt` makes it multi-user without route changes.

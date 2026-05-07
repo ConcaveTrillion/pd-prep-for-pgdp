@@ -112,7 +112,9 @@ def build_gpu_backend(
     log.info("Selected GPU backend: %s", chosen)
 
     if chosen == "local":
-        return LocalBackend()
+        # LocalBackend subclasses CpuBackend (DocTR/PyTorch auto-uses CUDA);
+        # adapters wire identically.
+        return LocalBackend(storage=storage, database=database, executor=executor)
     if chosen in {"cpu", "mps"}:
         # MPS is wired into DocTR automatically when torch sees Apple Silicon;
         # the rest of the pipeline runs on CPU. We treat them as the same
