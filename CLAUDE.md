@@ -78,12 +78,24 @@ uv run pgdp-prep --reload --frontend-dev http://localhost:5173   # other termina
   milestones M1–M6 in `docs/08-roadmap.md` §P0.5. New pipeline work
   follows that model — do not add new sub-steps inside
   `core/pipeline/process_page.py`'s monolithic body, and do not add
-  new `JobType.batch_*` values. Open questions Q1–Q7 are **locked
-  (2026-05-07)** per the spec's "Open questions — Locked" table.
-  A §"Memory-resident execution model" amendment landed 2026-05-07
-  (in-memory DAG + bounded deferred-write executor + lazy-load on
-  partial rerun) and adds **Q8/Q9/Q10 as not-yet-locked** — those
-  must be explicitly decided before M2 runner work.
+  new `JobType.batch_*` values. **All ten open questions Q1–Q10 are
+  locked (2026-05-07)** per the spec's "Open questions — Locked"
+  table.
+- **Pipeline invariants developers must respect:**
+  - **Every-intermediate persistence + dual-write reconciliation
+    (Q3 + Q1-followup):** every stage write is a transaction across
+    the on-disk artifact and the `page_stages` DB row. Best-effort
+    sequence is `write → fsync → atomic rename → DB UPDATE`. Failures
+    mark the row `failed` and propagate dirty downstream. The
+    `pgdp-prep reindex` CLI is the source-of-truth arbiter when DB
+    and disk disagree. Don't write to canonical artifact paths
+    bypassing this contract.
+  - **Splits = sibling pages (Q6):** a split produces N new sibling
+    `Page` rows with `parent_page_id` / `source_crop_bbox` /
+    `split_index` / `split_at_stage`. Each child runs the full
+    per-page DAG independently. Recursive splits are supported.
+    Do not model splits as configuration on `ocr_crop` or any other
+    stage; this was the pre-2026-05-07 model and is gone.
 - **Local-first priority (2026-05-07):** active work targets the local
   solo / self-hosted-team flow (SQLite + filesystem + CPU). Cloud /
   remote-mode prerequisites (Postgres adapter live tests, Modal-side
