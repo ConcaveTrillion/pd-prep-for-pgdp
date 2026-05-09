@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from pydantic import BaseModel
@@ -16,6 +17,9 @@ from ...core.models import (
     PAGE_STAGE_IDS,
     AlignmentOverride,
     IllustrationRegion,
+    Job,
+    JobStatus,
+    JobType,
     OcrWord,
     PageConfigOverrides,
     PageProcessingStatus,
@@ -477,18 +481,19 @@ async def list_page_stages(
 
 @router.post(
     "/projects/{project_id}/pages/{idx0}/stages/{stage_id}/run",
-    response_model=PageStageState,
+    response_model=Job | PageStageState,
     operation_id="run_page_stage",
 )
 async def run_page_stage(
     project_id: str,
     idx0: int,
     stage_id: str,
+    async_: bool = Query(False, alias="async"),
     user: UserContext = Depends(get_user),
     db: IDatabase = Depends(get_database),
     storage: IStorage = Depends(get_storage),
     settings: Settings = Depends(get_settings),
-) -> PageStageState:
+) -> Job | PageStageState:
     """Run one stage on one page synchronously and return the new row.
 
     Spec: `docs/specs/pipeline-task-model.md` §"Per-page stage runner"
@@ -528,6 +533,21 @@ async def run_page_stage(
         raise HTTPException(404, "page not found")
 
     page_id = _page_id_for_idx0(idx0)
+
+    if async_:
+        from fastapi.responses import JSONResponse
+
+        job = Job(
+            id=uuid.uuid4().hex,
+            project_id=project_id,
+            owner_id=user.user_id,
+            type=JobType.run_page_stage,
+            status=JobStatus.queued,
+            payload={"project_id": project_id, "page_id": page_id, "stage_id": stage_id},
+        )
+        await db.put_job(job)
+        return JSONResponse(content=job.model_dump(mode="json"), status_code=202)
+
     try:
         return await run_stage(
             data_root=settings.data_root,

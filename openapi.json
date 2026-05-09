@@ -1038,6 +1038,16 @@
               "type": "string",
               "title": "Stage Id"
             }
+          },
+          {
+            "name": "async",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Async"
+            }
           }
         ],
         "responses": {
@@ -1046,7 +1056,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PageStageState"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Job"
+                    },
+                    {
+                      "$ref": "#/components/schemas/PageStageState"
+                    }
+                  ],
+                  "title": "Response Run Page Stage"
                 }
               }
             }
@@ -1795,21 +1813,77 @@
       }
     },
     "/api/gpu/jobs": {
+      "get": {
+        "tags": [
+          "gpu"
+        ],
+        "summary": "List Jobs",
+        "description": "List the most recent jobs for the current user (newest first).",
+        "operationId": "list_gpu_jobs",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Job"
+                  },
+                  "title": "Response List Gpu Jobs"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "gpu"
         ],
         "summary": "Submit Batch Job",
         "operationId": "submit_batch_job",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/BatchJobRequest"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "202": {
@@ -1832,12 +1906,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
+        }
       }
     },
     "/api/gpu/jobs/{job_id}": {
@@ -2843,7 +2912,8 @@
           "batch_ocr",
           "batch_text_postprocess",
           "batch_extract_illustrations",
-          "build_package"
+          "build_package",
+          "run_page_stage"
         ],
         "title": "JobType"
       },

@@ -19,6 +19,16 @@ from .schemas import BatchJobRequest, BatchJobResponse, RetryJobRequest
 router = APIRouter(tags=["gpu"])
 
 
+@router.get("/jobs", response_model=list[Job], operation_id="list_gpu_jobs")
+async def list_jobs(
+    user: UserContext = Depends(get_user),
+    db: IDatabase = Depends(get_database),
+    limit: int = 50,
+) -> list[Job]:
+    """List the most recent jobs for the current user (newest first)."""
+    return await db.list_recent_jobs(user.user_id, limit=limit)
+
+
 @router.post("/jobs", response_model=BatchJobResponse, status_code=202, operation_id="submit_batch_job")
 async def submit_batch_job(
     body: BatchJobRequest,
