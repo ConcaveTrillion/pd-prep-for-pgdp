@@ -392,6 +392,9 @@ class JobType(str, Enum):
     batch_text_postprocess = "batch_text_postprocess"
     batch_extract_illustrations = "batch_extract_illustrations"
     build_package = "build_package"
+    # Per-page stage execution via the async route (?async=true).
+    # payload: {"project_id": str, "page_id": str, "stage_id": str, "device": str}
+    run_page_stage = "run_page_stage"
 
 
 class JobProgress(ApiModel):

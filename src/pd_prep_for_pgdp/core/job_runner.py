@@ -13,6 +13,7 @@ Job types -> handler:
   - batch_text_postprocess       -> CPU postprocess across pages
   - batch_extract_illustrations  -> CPU illustration extraction
   - build_package                -> core.packaging.build_package
+  - run_page_stage               -> core.pipeline.stage_runner.run_stage (async route)
 """
 
 from __future__ import annotations
@@ -519,6 +520,64 @@ async def _run_batch_pages(runner: InProcessJobRunner, job: Job, *, job_type: st
         await runner._db.put_job(latest)
 
 
+async def _handle_run_page_stage(runner: InProcessJobRunner, job: Job) -> None:
+    """Run a single per-page stage via the async route (?async=true).
+
+    Payload keys (all required):
+      - ``project_id``: the project being processed.
+      - ``page_id``:    zero-padded 4-digit string (e.g. ``"0000"``).
+      - ``stage_id``:   canonical stage id from ``PAGE_STAGE_IDS``.
+      - ``device``:     ``"cpu"`` (default) or ``"cuda"``.
+
+    The runner calls ``run_stage`` with the same arguments the synchronous
+    route would pass, using the runner's own ``_storage`` and ``_db``
+    adapters. The job transitions to ``complete`` on success or ``error``
+    on ``StageRunFailed`` / ``StageDependenciesNotMet``.
+
+    ``StageDependenciesNotMet`` is not a stage-impl failure but a caller-
+    ordering error; it bubbles up as a job ``error`` with a clear message
+    naming the missing parents.
+    """
+    from pathlib import Path
+
+    from .pipeline.stage_runner import run_stage
+
+    payload = job.payload
+    project_id = payload.get("project_id") or job.project_id
+    page_id: str = payload["page_id"]
+    stage_id: str = payload["stage_id"]
+    device: str = payload.get("device", "cpu")
+    # data_root is not stashed on the runner; the route records it in the
+    # payload so the handler is self-contained.
+    data_root = Path(payload["data_root"])
+
+    project = await runner._db.get_project(project_id)
+    if project is None:
+        raise FileNotFoundError(f"project {project_id!r} not found")
+    # page_source_key: look it up from the DB rather than embedding in payload.
+    # idx0 is derivable from page_id (zero-padded int).
+    idx0 = int(page_id)
+    page = await runner._db.get_page(project_id, idx0)
+    page_source_key = page.source_key if page is not None else None
+
+    await run_stage(
+        data_root=data_root,
+        database=runner._db,
+        project_id=project_id,
+        page_id=page_id,
+        stage_id=stage_id,
+        device=device,
+        storage=runner._storage,
+        page_source_key=page_source_key,
+    )
+    await runner._update_progress(
+        job,
+        current=1,
+        total=1,
+        message=f"stage {stage_id!r} completed",
+    )
+
+
 _HANDLERS = {
     JobType.unzip: _handle_unzip,
     JobType.thumbnails: _handle_thumbnails,
@@ -527,6 +586,7 @@ _HANDLERS = {
     JobType.batch_extract_illustrations: _handle_extract_illustrations,
     JobType.batch_process_pages: _handle_batch_process_pages,
     JobType.batch_ocr: _handle_batch_ocr,
+    JobType.run_page_stage: _handle_run_page_stage,
 }
 
 

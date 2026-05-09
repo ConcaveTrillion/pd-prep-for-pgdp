@@ -234,6 +234,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     app.state.auth = auth
     app.state.gpu_backend = gpu
     app.state.dispatcher = dispatcher
+    app.state.job_runner = job_runner
 
     install_error_handlers(app)
     install_auth_routes(app)

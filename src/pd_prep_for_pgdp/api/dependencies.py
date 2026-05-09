@@ -50,6 +50,12 @@ def get_settings(request: Request) -> Settings:
     return request.app.state.settings  # type: ignore[no-any-return]
 
 
+def get_job_runner(request: Request):  # type: ignore[no-untyped-def]
+    """The InProcessJobRunner — used by the async stage-run route to enqueue
+    a Job and hand off execution to the background poll loop."""
+    return request.app.state.job_runner
+
+
 async def get_user(
     creds: HTTPAuthorizationCredentials | None = Depends(_security),
     auth: IAuth = Depends(get_auth),
