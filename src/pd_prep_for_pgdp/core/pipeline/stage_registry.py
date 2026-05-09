@@ -324,6 +324,89 @@ def _canvas_map_cpu(image: Any) -> Any:
     )
 
 
+# ─── Real implementations: blank-page branch (M2 Slice 12) ─────────────────
+#
+# `auto_detect_attrs` runs immediately after `ingest_source` and outputs a
+# JSON dict (output_type='page_attrs') with page-type hints and the source
+# image's h/w ratio. The runner JSON-encodes this dict and writes it to
+# output.json.
+#
+# `blank_proof_synth` reads the page_attrs dict and returns an ndarray of
+# a synthesised blank white page at the detected aspect ratio. The runner
+# PNG-encodes the ndarray (output_type='image_bytes').
+
+
+def _auto_detect_attrs_cpu(image: Any) -> dict[str, Any]:
+    """Detect page attributes from a decoded source image ndarray.
+
+    The runner loads the `ingest_source` parent artifact as an ndarray (via
+    cv2.imdecode, because `ingest_source` has `output_type='image_bytes'`
+    which is in `_IMAGE_OUTPUT_TYPES`). This impl therefore receives a
+    BGR ndarray and re-encodes it to PNG bytes so `detect_page_attributes`
+    can run its heuristics. This double encode/decode round-trip is
+    intentional — it keeps the impl pure in ndarray space (matching the
+    runner's contract for all other image-in stages) while reusing the
+    existing heuristic function that accepts bytes.
+
+    Returns a dict with:
+
+    - ``suggested_type``: string page type ("blank", "normal", "plate_p", …)
+    - ``suggested_alignment``: string alignment hint ("default", "center")
+    - ``confidence``: float detection confidence
+    - ``height``, ``width``: source image dimensions in pixels
+    - ``h_w_ratio``: height / width (used by blank_proof_synth + canvas_map)
+
+    The runner JSON-serialises this dict and writes it to `output.json`.
+    """
+    import cv2  # type: ignore[import-not-found]
+
+    from ...core.auto_detect import detect_page_attributes
+
+    # Re-encode the ndarray to PNG bytes so detect_page_attributes can parse.
+    ok, buf = cv2.imencode(".png", image)
+    if not ok:
+        raise RuntimeError("cv2.imencode failed in auto_detect_attrs")
+    png_bytes = bytes(buf.tobytes())
+
+    suggestion = detect_page_attributes(png_bytes)
+    height, width = image.shape[:2]
+    h_w_ratio = height / width if width > 0 else 1.65
+
+    return {
+        "suggested_type": suggestion.suggested_type.value,
+        "suggested_alignment": suggestion.suggested_alignment.value,
+        "confidence": suggestion.confidence,
+        "height": height,
+        "width": width,
+        "h_w_ratio": h_w_ratio,
+    }
+
+
+def _blank_proof_synth_cpu(page_attrs: dict[str, Any]) -> Any:
+    """Synthesise a blank proofing image for blank / plate-b / plate-r pages.
+
+    Takes the `page_attrs` dict from `auto_detect_attrs` and returns an
+    ndarray of a white page at the detected aspect ratio. The runner
+    PNG-encodes the result (output_type='image_bytes').
+
+    Mirrors `process_page_cpu`'s 4b branch: `blank_proof.create_blank_proof`
+    with `h_w_ratio` from the detected page attributes. Falls back to 1.65
+    (US-Letter proportions) when the field is absent or zero.
+    """
+    import numpy as np  # type: ignore[import-not-found]
+
+    h_w_ratio = float(page_attrs.get("h_w_ratio") or 1.65)
+    short_side = 1000
+    if h_w_ratio >= 1.0:
+        height = max(short_side, int(short_side * h_w_ratio))
+        width = short_side
+    else:
+        width = max(short_side, int(short_side / h_w_ratio))
+        height = short_side
+
+    return np.full((height, width), 255, dtype=np.uint8)
+
+
 # ─── Registry assembly ──────────────────────────────────────────────────────
 
 # Real implementations registered for cpu. Keys must be in `PAGE_STAGE_IDS`.
@@ -335,13 +418,16 @@ _REAL_CPU_IMPLS: dict[str, Callable[..., Any]] = {
     "grayscale": _grayscale_cpu,
     "threshold": _threshold_cpu,
     "invert": _invert_cpu,
-    # Slice 9–11: post-invert proofing chain through canvas_map.
+    # Slices 9–11: post-invert proofing chain through canvas_map.
     "find_content_edges": _find_content_edges_cpu,
     "crop_to_content": _crop_to_content_cpu,
     "auto_deskew": _auto_deskew_cpu,
     "morph_fill": _morph_fill_cpu,
     "rescale": _rescale_cpu,
     "canvas_map": _canvas_map_cpu,
+    # Slice 12: blank-page branch.
+    "auto_detect_attrs": _auto_detect_attrs_cpu,
+    "blank_proof_synth": _blank_proof_synth_cpu,
 }
 
 

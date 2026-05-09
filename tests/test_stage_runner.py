@@ -798,6 +798,91 @@ async def test_run_stage_canvas_map_runs_after_rescale(
     assert arr is not None
 
 
+# ─── Slice 12: auto_detect_attrs + blank_proof_synth ───────────────────────
+
+
+@pytest.mark.asyncio
+async def test_run_stage_auto_detect_attrs_produces_json_artifact(
+    tmp_path: Path,
+    db: SqliteDatabase,
+) -> None:
+    """`auto_detect_attrs` runs and emits a page_attrs JSON artifact on disk.
+
+    Parent is `ingest_source` (output_type='image_bytes'). The artifact must
+    be a JSON object with at least 'suggested_type' and 'h_w_ratio'.
+    """
+    import json
+
+    project_id, page_id = "p1", "0000"
+
+    # Build a small white source image (should detect as blank).
+    img = np.full((100, 80, 3), 250, dtype=np.uint8)
+    ok, buf = cv2.imencode(".png", img)
+    assert ok
+    payload = bytes(buf.tobytes())
+
+    await _seed_clean_parents(
+        db, tmp_path, project_id, page_id, parent_stages=["ingest_source"], payload=payload
+    )
+
+    state = await run_stage(
+        data_root=tmp_path,
+        database=db,
+        project_id=project_id,
+        page_id=page_id,
+        stage_id="auto_detect_attrs",
+    )
+
+    assert state.status == PageStageStatus.clean, f"error: {state.error_message!r}"
+    artifact_path = stage_artifact_path(tmp_path, project_id, page_id, "auto_detect_attrs")
+    assert artifact_path.exists()
+    data = json.loads(artifact_path.read_text())
+    assert isinstance(data, dict)
+    assert "suggested_type" in data
+    assert "h_w_ratio" in data
+
+
+@pytest.mark.asyncio
+async def test_run_stage_blank_proof_synth_produces_png_artifact(
+    tmp_path: Path,
+    db: SqliteDatabase,
+) -> None:
+    """`blank_proof_synth` loads `auto_detect_attrs` JSON and produces a PNG.
+
+    The output must be a valid PNG artifact decodable by cv2.
+    """
+    import json
+
+    project_id, page_id = "p1", "0000"
+
+    # Seed auto_detect_attrs with a known-good page_attrs JSON.
+    page_attrs = {"suggested_type": "blank", "h_w_ratio": 1.5, "height": 150, "width": 100}
+    attrs_artifact = json.dumps(page_attrs).encode()
+    await db.init_page_stages_for_page(project_id, page_id)
+    await commit_stage_artifact(
+        data_root=tmp_path,
+        database=db,
+        project_id=project_id,
+        page_id=page_id,
+        stage_id="auto_detect_attrs",
+        artifact_bytes=attrs_artifact,
+    )
+
+    state = await run_stage(
+        data_root=tmp_path,
+        database=db,
+        project_id=project_id,
+        page_id=page_id,
+        stage_id="blank_proof_synth",
+    )
+
+    assert state.status == PageStageStatus.clean, f"error: {state.error_message!r}"
+    artifact_path = stage_artifact_path(tmp_path, project_id, page_id, "blank_proof_synth")
+    assert artifact_path.exists()
+    arr = cv2.imdecode(np.frombuffer(artifact_path.read_bytes(), np.uint8), cv2.IMREAD_UNCHANGED)
+    assert arr is not None, "blank_proof_synth artifact is not a valid PNG"
+
+
 @pytest.mark.asyncio
 async def test_run_stage_full_chain_through_canvas_map(
     tmp_path: Path,

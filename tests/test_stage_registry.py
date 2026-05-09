@@ -432,3 +432,85 @@ def test_canvas_map_cpu_produces_canonical_aspect_ratio() -> None:
     ratio = h / w
     # Default h/w ratio is 1.65; allow ±20% for canvas padding.
     assert 1.0 <= ratio <= 2.5, f"unexpected canvas aspect ratio h/w={ratio:.2f}"
+
+
+# ─── Real impl: auto_detect_attrs (Slice 12) ───────────────────────────────
+
+
+def _png_from_array(arr: np.ndarray) -> bytes:
+    """Encode an ndarray as PNG bytes for testing."""
+    import cv2
+
+    ok, buf = cv2.imencode(".png", arr)
+    assert ok
+    return bytes(buf.tobytes())
+
+
+def test_auto_detect_attrs_cpu_returns_dict() -> None:
+    """auto_detect_attrs returns a dict with page attribute fields.
+
+    The impl receives an ndarray (the runner decodes the ingest_source
+    image_bytes parent via cv2.imdecode before calling it).
+    """
+    fn = get_stage_impl("auto_detect_attrs", "cpu")
+    img = np.full((100, 80, 3), 200, dtype=np.uint8)
+    out = fn(img)
+    assert isinstance(out, dict)
+
+
+def test_auto_detect_attrs_cpu_has_required_fields() -> None:
+    """auto_detect_attrs output must contain suggested_type, h_w_ratio, height, width."""
+    fn = get_stage_impl("auto_detect_attrs", "cpu")
+    img = np.full((120, 80, 3), 200, dtype=np.uint8)
+    out = fn(img)
+    assert "suggested_type" in out, f"missing 'suggested_type' in {out.keys()!r}"
+    assert "h_w_ratio" in out, f"missing 'h_w_ratio' in {out.keys()!r}"
+    assert "height" in out
+    assert "width" in out
+
+
+def test_auto_detect_attrs_cpu_blank_page_suggests_blank() -> None:
+    """A mostly-white image should be detected as 'blank'."""
+    fn = get_stage_impl("auto_detect_attrs", "cpu")
+    white = np.full((100, 80, 3), 250, dtype=np.uint8)
+    out = fn(white)
+    assert out["suggested_type"] == "blank"
+
+
+def test_auto_detect_attrs_cpu_h_w_ratio_from_dimensions() -> None:
+    """h_w_ratio should match height/width of the input ndarray."""
+    fn = get_stage_impl("auto_detect_attrs", "cpu")
+    img = np.full((160, 100, 3), 180, dtype=np.uint8)
+    out = fn(img)
+    expected = 160 / 100
+    assert abs(out["h_w_ratio"] - expected) < 0.01, f"h_w_ratio {out['h_w_ratio']} != {expected}"
+
+
+# ─── Real impl: blank_proof_synth (Slice 12) ───────────────────────────────
+
+
+def test_blank_proof_synth_cpu_returns_ndarray() -> None:
+    """blank_proof_synth takes a page_attrs dict and returns an ndarray."""
+    fn = get_stage_impl("blank_proof_synth", "cpu")
+    page_attrs = {"suggested_type": "blank", "h_w_ratio": 1.5, "height": 150, "width": 100}
+    out = fn(page_attrs)
+    assert isinstance(out, np.ndarray)
+
+
+def test_blank_proof_synth_cpu_produces_white_image() -> None:
+    """blank_proof_synth returns a white (255-filled) image."""
+    fn = get_stage_impl("blank_proof_synth", "cpu")
+    page_attrs = {"suggested_type": "blank", "h_w_ratio": 1.65, "height": 165, "width": 100}
+    out = fn(page_attrs)
+    assert out.min() >= 250, f"expected white image, got min={out.min()}"
+
+
+def test_blank_proof_synth_cpu_aspect_ratio_matches_attrs() -> None:
+    """blank_proof_synth scales image to h_w_ratio from page_attrs."""
+    fn = get_stage_impl("blank_proof_synth", "cpu")
+    h_w = 2.0
+    page_attrs = {"suggested_type": "blank", "h_w_ratio": h_w, "height": 200, "width": 100}
+    out = fn(page_attrs)
+    h, w = out.shape[:2]
+    actual_ratio = h / w
+    assert abs(actual_ratio - h_w) < 0.2, f"aspect ratio {actual_ratio:.2f} vs expected {h_w}"
