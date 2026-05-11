@@ -14,12 +14,22 @@ from ...adapters.database import IDatabase
 from ...core.job_events import JobEventBroker
 from ...core.models import Job, JobStatus, JobType
 from ..dependencies import get_database, get_job_events, get_user
-from .schemas import BatchJobRequest, BatchJobResponse
+from .schemas import BatchJobRequest, BatchJobResponse, RetryJobRequest
 
 router = APIRouter(tags=["gpu"])
 
 
-@router.post("/jobs", response_model=BatchJobResponse, status_code=202)
+@router.get("/jobs", response_model=list[Job], operation_id="list_gpu_jobs")
+async def list_jobs(
+    user: UserContext = Depends(get_user),
+    db: IDatabase = Depends(get_database),
+    limit: int = 50,
+) -> list[Job]:
+    """List the most recent jobs for the current user (newest first)."""
+    return await db.list_recent_jobs(user.user_id, limit=limit)
+
+
+@router.post("/jobs", response_model=BatchJobResponse, status_code=202, operation_id="submit_batch_job")
 async def submit_batch_job(
     body: BatchJobRequest,
     user: UserContext = Depends(get_user),
@@ -59,7 +69,7 @@ async def submit_batch_job(
     )
 
 
-@router.get("/jobs/{job_id}", response_model=Job)
+@router.get("/jobs/{job_id}", response_model=Job, operation_id="get_gpu_job")
 async def get_job(
     job_id: str,
     user: UserContext = Depends(get_user),
@@ -71,7 +81,7 @@ async def get_job(
     return job
 
 
-@router.delete("/jobs/{job_id}", status_code=204)
+@router.delete("/jobs/{job_id}", status_code=204, operation_id="cancel_gpu_job")
 async def cancel_job(
     job_id: str,
     user: UserContext = Depends(get_user),
@@ -85,16 +95,23 @@ async def cancel_job(
         await db.put_job(job)
 
 
-@router.post("/jobs/{job_id}/retry", response_model=BatchJobResponse, status_code=202)
+@router.post(
+    "/jobs/{job_id}/retry", response_model=BatchJobResponse, status_code=202, operation_id="retry_gpu_job"
+)
 async def retry_job(
     job_id: str,
+    body: RetryJobRequest | None = None,
     user: UserContext = Depends(get_user),
     db: IDatabase = Depends(get_database),
 ) -> BatchJobResponse:
     """Create a fresh copy of a failed/cancelled job in `queued` status.
 
-    Same project_id, type, and payload — fresh id and timestamps. The
-    original job stays in the database so the user can compare.
+    Same project_id and type — fresh id and timestamps. The original job
+    stays in the database so the user can compare. The new job's payload
+    starts as a copy of the original's; if `body.payload_override` is
+    provided (P3 #16), its keys are shallow-merged over the original
+    payload (override keys replace, others are preserved). Pass `None` /
+    omit the body to retry verbatim.
     """
     job = await db.get_job(job_id)
     if job is None or job.owner_id != user.user_id:
@@ -109,6 +126,12 @@ async def retry_job(
     dispatch_mode = "scheduled" if interval > 0 else "immediate"
     next_dispatch = datetime.now(UTC) + timedelta(seconds=interval) if interval > 0 else None
 
+    # Shallow-merge `payload_override` over a copy of the original payload.
+    # `dict(job.payload)` keeps the original job's row immutable.
+    new_payload = dict(job.payload)
+    if body is not None and body.payload_override:
+        new_payload.update(body.payload_override)
+
     new_job = Job(
         id=uuid.uuid4().hex,
         project_id=job.project_id,
@@ -116,7 +139,7 @@ async def retry_job(
         type=job.type,
         status=JobStatus.scheduled if interval > 0 else JobStatus.queued,
         next_dispatch_at=next_dispatch,
-        payload=dict(job.payload),
+        payload=new_payload,
     )
     await db.put_job(new_job)
     page_idxs = new_job.payload.get("page_idxs") or []
@@ -129,7 +152,7 @@ async def retry_job(
     )
 
 
-@router.get("/jobs/{job_id}/events")
+@router.get("/jobs/{job_id}/events", operation_id="stream_gpu_job_events")
 async def job_events(
     job_id: str,
     user: UserContext = Depends(get_user),

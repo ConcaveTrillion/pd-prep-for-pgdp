@@ -27,6 +27,7 @@ from typing import Any
 from .base import (
     BatchJobItem,
     BatchJobResult,
+    BatchProgressCb,
     GPUBackend,
     OcrPageRequest,
     OcrPageResponse,
@@ -83,14 +84,36 @@ class ModalBackend(GPUBackend):
         result = await fn.remote.aio(req.model_dump())
         return OcrPageResponse.model_validate(result)
 
-    async def run_batch(self, items: list[BatchJobItem]) -> list[BatchJobResult]:
+    async def run_batch(
+        self,
+        items: list[BatchJobItem],
+        *,
+        progress_cb: BatchProgressCb | None = None,
+    ) -> list[BatchJobResult]:
         """One Modal invocation handles the whole batch — amortises cold start.
 
         Items must serialise to a list of plain dicts. Modal's container picks
         them up, runs `core.pipeline` / `core.ocr` per item, and returns a
         list of result dicts.
+
+        `progress_cb` is part of the GPUBackend Protocol but Modal's
+        single-shot `.remote.aio()` only delivers results at the end, so we
+        replay the callback once per item after the call returns. Streaming
+        per-item progress over Modal's wire would need `.spawn().get()` plus
+        a side channel — punted to a follow-up.
         """
         fn = self._load_function(self.RUN_BATCH_FN)
         payload = [item.model_dump() for item in items]
-        results = await fn.remote.aio(payload)
-        return [BatchJobResult.model_validate(r) for r in results]
+        results_raw = await fn.remote.aio(payload)
+        results = [BatchJobResult.model_validate(r) for r in results_raw]
+        if progress_cb is not None:
+            total = len(results)
+            for i, result in enumerate(results, start=1):
+                try:
+                    await progress_cb(i, total, result)
+                except Exception:
+                    log.exception(
+                        "modal run_batch progress_cb raised (item idx0=%s); continuing",
+                        result.idx0,
+                    )
+        return results

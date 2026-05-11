@@ -7,11 +7,16 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from ...adapters.auth import UserContext
 from ...adapters.database import IDatabase
 from ...adapters.storage import IStorage
+from ...core.ingest import (
+    extract_zip_image_thumbnail,
+    peek_zip_image_names,
+)
 from ...core.models import (
     PipelineState,
     Project,
@@ -46,7 +51,19 @@ class UpdateConfigResponse(BaseModel):
     updated_at: datetime
 
 
-@router.post("/projects", response_model=CreateProjectResponse)
+class SourcePreviewResponse(BaseModel):
+    """Cheap-to-compute preview of an uploaded source zip (P2 #8).
+
+    Lets the SPA render a thumbnail strip / sanity-check the upload before
+    triggering ingest. Backed by `peek_zip_image_names`, which only reads
+    the zip's central directory — no per-entry decompression.
+    """
+
+    filenames: list[str]
+    total_image_count: int
+
+
+@router.post("/projects", response_model=CreateProjectResponse, operation_id="create_project")
 async def create_project(
     body: CreateProjectRequest,
     user: UserContext = Depends(get_user),
@@ -84,15 +101,16 @@ async def create_project(
     return CreateProjectResponse(project=project, upload_url=upload_url, upload_key=upload_key)
 
 
-@router.get("/projects", response_model=list[Project])
+@router.get("/projects", response_model=list[Project], operation_id="list_projects")
 async def list_projects(
+    include_archived: bool = False,
     user: UserContext = Depends(get_user),
     db: IDatabase = Depends(get_database),
 ) -> list[Project]:
-    return await db.list_projects(user.user_id)
+    return await db.list_projects(user.user_id, include_archived=include_archived)
 
 
-@router.get("/projects/{project_id}", response_model=Project)
+@router.get("/projects/{project_id}", response_model=Project, operation_id="get_project")
 async def get_project(
     project_id: str,
     user: UserContext = Depends(get_user),
@@ -109,6 +127,7 @@ async def get_project(
 @router.patch(
     "/projects/{project_id}/config",
     response_model=UpdateConfigResponse,
+    operation_id="update_project_config",
 )
 async def update_project_config(
     project_id: str,
@@ -144,7 +163,7 @@ async def update_project_config(
     )
 
 
-@router.delete("/projects/{project_id}", status_code=204)
+@router.delete("/projects/{project_id}", status_code=204, operation_id="delete_project")
 async def delete_project(
     project_id: str,
     user: UserContext = Depends(get_user),
@@ -156,3 +175,118 @@ async def delete_project(
     if project.owner_id != user.user_id:
         raise HTTPException(403, "not authorised")
     await db.delete_project(project_id)
+
+
+async def _set_archived(
+    project_id: str,
+    *,
+    archived: bool,
+    user: UserContext,
+    db: IDatabase,
+) -> Project:
+    project = await db.get_project(project_id)
+    if project is None:
+        raise HTTPException(404, "project not found")
+    if project.owner_id != user.user_id:
+        raise HTTPException(403, "not authorised")
+    if project.archived != archived:
+        project.archived = archived
+        project.updated_at = datetime.now(UTC)
+        await db.put_project(project)
+    return project
+
+
+@router.post("/projects/{project_id}/archive", response_model=Project, operation_id="archive_project")
+async def archive_project(
+    project_id: str,
+    user: UserContext = Depends(get_user),
+    db: IDatabase = Depends(get_database),
+) -> Project:
+    """Soft-delete: hide the project from default listings without removing data.
+
+    Idempotent — archiving an already-archived project is a no-op (still 200).
+    """
+    return await _set_archived(project_id, archived=True, user=user, db=db)
+
+
+@router.get(
+    "/projects/{project_id}/source-preview",
+    response_model=SourcePreviewResponse,
+    operation_id="get_source_preview",
+)
+async def source_preview(
+    project_id: str,
+    limit: int = 20,
+    user: UserContext = Depends(get_user),
+    db: IDatabase = Depends(get_database),
+    storage: IStorage = Depends(get_storage),
+) -> SourcePreviewResponse:
+    """Return image filenames + total count from the project's `source.zip`.
+
+    404s for unknown / wrong-owner projects (mirrors `assets.py`'s collapse
+    of 403 → 404 to avoid leaking existence) and for the case where the
+    presigned upload URL was issued but the PUT never landed.
+    """
+    project = await db.get_project(project_id)
+    if project is None or project.owner_id != user.user_id:
+        raise HTTPException(404, "project not found")
+    source_key = f"{project.storage_prefix}source.zip"
+    if not await storage.exists(source_key):
+        raise HTTPException(404, "source zip not uploaded")
+    raw = await storage.get_bytes(source_key)
+    filenames, total = peek_zip_image_names(raw, limit=limit)
+    return SourcePreviewResponse(filenames=filenames, total_image_count=total)
+
+
+@router.get(
+    "/projects/{project_id}/source-preview/{filename}/thumbnail",
+    responses={
+        200: {"content": {"image/jpeg": {}}, "description": "JPEG thumbnail bytes"},
+        404: {"description": "Project, source.zip, or named entry not found"},
+    },
+    response_class=Response,
+    operation_id="get_source_preview_thumbnail",
+)
+async def source_preview_thumbnail(
+    project_id: str,
+    filename: str,
+    user: UserContext = Depends(get_user),
+    db: IDatabase = Depends(get_database),
+    storage: IStorage = Depends(get_storage),
+) -> Response:
+    """Return a JPEG thumbnail for one image entry inside the project's source.zip.
+
+    Pairs with ``GET /source-preview`` (slice 2): that route returns the
+    image filenames; the SPA then issues one of these per filename to fill
+    the preview strip. Auth/ownership match slice 2 verbatim — collapsing
+    403 → 404 so existence isn't leaked.
+
+    Unknown filename and non-image filename both 404 (see
+    ``extract_zip_image_thumbnail``); a corrupt image inside the zip
+    becomes a 500 today, since that indicates a broken upload rather than
+    a routine missing entry — let the SPA surface it.
+    """
+    from ...core.ingest import ZipImageEntryNotFound
+
+    project = await db.get_project(project_id)
+    if project is None or project.owner_id != user.user_id:
+        raise HTTPException(404, "project not found")
+    source_key = f"{project.storage_prefix}source.zip"
+    if not await storage.exists(source_key):
+        raise HTTPException(404, "source zip not uploaded")
+    raw = await storage.get_bytes(source_key)
+    try:
+        jpeg = extract_zip_image_thumbnail(raw, filename)
+    except ZipImageEntryNotFound:
+        raise HTTPException(404, "image entry not found in source zip") from None
+    return Response(content=jpeg, media_type="image/jpeg")
+
+
+@router.post("/projects/{project_id}/unarchive", response_model=Project, operation_id="unarchive_project")
+async def unarchive_project(
+    project_id: str,
+    user: UserContext = Depends(get_user),
+    db: IDatabase = Depends(get_database),
+) -> Project:
+    """Restore a soft-deleted project. Idempotent."""
+    return await _set_archived(project_id, archived=False, user=user, db=db)

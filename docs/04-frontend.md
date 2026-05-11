@@ -95,8 +95,12 @@ let consumers switch on `type` instead of parsing `status`.
 
 ## What's deferred
 
-- **Vitest + msw tests** — npm/node aren't in this devcontainer
-  (`feedback_no_npm_in_devcontainer.md`). The pages have testable seams
-  (mutation hooks, exported helpers) so adding tests later is mechanical.
 - **OpenAPI codegen** — the `make openapi-export` target works once the user
-  runs it; today the hand-written `types.ts` is what compiles.
+  runs it; today the hand-written `types.ts` is what compiles. Roadmap §20
+  tracks wiring this into CI as a divergence guard.
+- **shadcn/ui + Radix adoption** — specs name shadcn/Radix, but the SPA
+  ships hand-rolled Tailwind on raw HTML today. Roadmap §13a tracks
+  closing the divergence (Dialog, AlertDialog, Toast, etc.).
+
+Vitest + msw harness is **landed** (roadmap §9 — toolchain, three
+target flows, mount-level tests). Run via `make frontend-test`.

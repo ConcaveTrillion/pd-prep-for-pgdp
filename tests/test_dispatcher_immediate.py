@@ -1,13 +1,14 @@
 """Lock in `dispatcher.immediate.ImmediateDispatcher` behaviour.
 
-  - `submit` runs the backend's `run_batch` synchronously and stashes results,
-  - `flush` drains the buffer and resets it,
-  - parallel submits serialize behind the lock (no result interleaving lost).
+- `submit` runs the backend's `run_batch` synchronously and stashes results,
+- `flush` drains the buffer and resets it,
+- parallel submits serialize behind the lock (no result interleaving lost).
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 import pytest
 
@@ -83,7 +84,5 @@ async def test_run_forever_is_idle_and_cancellable() -> None:
     task = asyncio.create_task(d.run_forever())
     await asyncio.sleep(0.05)
     task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await task
-    except asyncio.CancelledError:
-        pass

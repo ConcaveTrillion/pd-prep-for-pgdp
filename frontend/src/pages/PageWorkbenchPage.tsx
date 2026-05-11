@@ -10,12 +10,25 @@ import {
 import type Konva from "konva";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
-import type {
-  AlignmentOverride,
-  PageConfigOverrides,
-  PageRecord,
-  PageType,
-} from "../api/types";
+import type { components } from "../api/types.gen";
+
+type AlignmentOverride = components["schemas"]["AlignmentOverride"];
+type PageRecord = components["schemas"]["PageRecord"];
+type PageType = components["schemas"]["PageType"];
+// Local form state mutates fields incrementally → use the Input variant
+// (every field optional). PageRecord.config_overrides on the wire is the
+// Output variant (every field present), but the workbench reads via React
+// state typed as Input; TypeScript narrows fine because Output is structurally
+// a subtype.
+type PageConfigOverrides = components["schemas"]["PageConfigOverrides-Input"];
+// PATCH /api/data/projects/{id}/pages/{idx0} accepts UpdatePageRequest
+// (Input-side, fields nullable). The previous hand-written shape used
+// Partial<PageRecord> which conflated Input and Output; types.gen forces us
+// to be precise.
+type UpdatePageRequest = components["schemas"]["UpdatePageRequest"];
+import { useJobProgress } from "../hooks/useJobProgress";
+import { useActiveBatchJob } from "../hooks/useActiveBatchJob";
+import { StageChainRail } from "../components/StageChainRail";
 
 interface ProcessPageResponse {
   processed_image_key: string;
@@ -53,7 +66,13 @@ interface IllustrationRegion {
 
 type EditMode = "view" | "split" | "illustration";
 
-const PAGE_TYPES: PageType[] = ["normal", "blank", "plate_b", "plate_p", "plate_r"];
+const PAGE_TYPES: PageType[] = [
+  "normal",
+  "blank",
+  "plate_b",
+  "plate_p",
+  "plate_r",
+];
 const ALIGNMENTS: AlignmentOverride[] = ["default", "top", "center", "bottom"];
 
 export function PageWorkbenchPage() {
@@ -66,6 +85,36 @@ export function PageWorkbenchPage() {
     queryFn: () =>
       api.get<PageRecord>(`/api/data/projects/${projectId}/pages/${idx0}`),
   });
+
+  // Look for a running batch_process_pages job on this project so we can
+  // show a "Processing…" badge if the worker is on this very page.
+  const activeBatch = useActiveBatchJob(projectId || null);
+  const liveBatchJobId = activeBatch.jobId;
+  const jobProgress = useJobProgress(liveBatchJobId);
+  const isProcessingThisPage =
+    jobProgress.currentPage !== null && jobProgress.currentPage === idx0;
+
+  // When a batch job finishes, the page record on disk is now stale —
+  // refresh so the user sees the new processed_image / status without a
+  // manual reload.
+  useEffect(() => {
+    if (jobProgress.isTerminal && liveBatchJobId) {
+      queryClient.invalidateQueries({ queryKey: ["page", projectId, idx0] });
+      queryClient.invalidateQueries({ queryKey: ["jobs", projectId] });
+    }
+  }, [jobProgress.isTerminal, liveBatchJobId, queryClient, projectId, idx0]);
+
+  // Also refresh as the worker advances PAST this page (current_page moved
+  // beyond idx0) — at that point this page's record is freshly written.
+  useEffect(() => {
+    if (
+      jobProgress.currentPage !== null &&
+      jobProgress.currentPage > idx0 &&
+      liveBatchJobId
+    ) {
+      queryClient.invalidateQueries({ queryKey: ["page", projectId, idx0] });
+    }
+  }, [jobProgress.currentPage, idx0, liveBatchJobId, queryClient, projectId]);
 
   const [overrides, setOverrides] = useState<PageConfigOverrides>({});
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -87,7 +136,7 @@ export function PageWorkbenchPage() {
   });
 
   const commitOverrides = useMutation({
-    mutationFn: (patch: Partial<PageRecord>) =>
+    mutationFn: (patch: UpdatePageRequest) =>
       api.patch<PageRecord>(
         `/api/data/projects/${projectId}/pages/${idx0}`,
         patch,
@@ -101,7 +150,12 @@ export function PageWorkbenchPage() {
   if (page.isLoading) return <p className="text-slate-500">Loading…</p>;
   if (!page.data) return <p className="text-red-600">Page not found.</p>;
 
-  const handleAddSplit = (rect: { L: number; R: number; T: number; B: number }) => {
+  const handleAddSplit = (rect: {
+    L: number;
+    R: number;
+    T: number;
+    B: number;
+  }) => {
     const splits = (page.data!.splits as PageSplit[]) ?? [];
     const next: PageSplit = {
       suffix: nextSplitSuffix(splits),
@@ -117,7 +171,12 @@ export function PageWorkbenchPage() {
     commitOverrides.mutate({ splits: [...splits, next] as any });
   };
 
-  const handleAddRegion = (rect: { L: number; R: number; T: number; B: number }) => {
+  const handleAddRegion = (rect: {
+    L: number;
+    R: number;
+    T: number;
+    B: number;
+  }) => {
     const regions =
       (page.data!.illustration_regions as IllustrationRegion[]) ?? [];
     const next: IllustrationRegion = {
@@ -180,8 +239,17 @@ export function PageWorkbenchPage() {
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-lg font-semibold">
+            <h1 className="flex items-center gap-2 text-lg font-semibold">
               {page.data.prefix || `#${idx0}`}
+              {isProcessingThisPage && (
+                <span
+                  className="inline-flex items-center gap-1 rounded bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-800 animate-pulse"
+                  title="A batch_process_pages job is currently processing this page"
+                >
+                  <span className="h-2 w-2 rounded-full bg-sky-500" />
+                  Processing…
+                </span>
+              )}
             </h1>
             <p className="text-xs text-slate-500">{page.data.source_stem}</p>
           </div>
@@ -207,6 +275,10 @@ export function PageWorkbenchPage() {
             {page.data.processing_error}
           </div>
         )}
+
+        {/* M2 Slice 5 — per-page stage DAG chip rail. Click a chip to
+            invoke POST /stages/{id}/run; statuses re-poll while running. */}
+        <StageChainRail projectId={projectId} idx0={idx0} />
 
         <ModeToolbar mode={editMode} onChange={setEditMode} />
 
@@ -292,9 +364,12 @@ function CanvasViewer({
   const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(
     null,
   );
-  const [dragRect, setDragRect] = useState<
-    { x: number; y: number; w: number; h: number } | null
-  >(null);
+  const [dragRect, setDragRect] = useState<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>(null);
   const [selection, setSelection] = useState<Selection>(null);
 
   useEffect(() => {
@@ -340,9 +415,7 @@ function CanvasViewer({
 
   // Click-on-empty-stage clears the selection. The Transformer + the rects
   // themselves stop the click via stopPropagation.
-  const handleStageClick = (
-    e: Konva.KonvaEventObject<MouseEvent>,
-  ) => {
+  const handleStageClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
     if (drawingEnabled) return;
     if (e.target === e.target.getStage()) setSelection(null);
   };
@@ -435,7 +508,10 @@ function CanvasViewer({
                         setSelection({ kind: "region", index: region.index });
                     }}
                     onDragEnd={(e) =>
-                      onUpdateRegion(region.index, rectFromNode(e.target, scale))
+                      onUpdateRegion(
+                        region.index,
+                        rectFromNode(e.target, scale),
+                      )
                     }
                     onTransformEnd={(e) => {
                       onUpdateRegion(
@@ -489,10 +565,7 @@ function CanvasViewer({
                     onUpdateSplit(split.suffix, rectFromNode(e.target, scale))
                   }
                   onTransformEnd={(e) => {
-                    onUpdateSplit(
-                      split.suffix,
-                      rectFromNode(e.target, scale),
-                    );
+                    onUpdateSplit(split.suffix, rectFromNode(e.target, scale));
                     const node = e.target;
                     const newW = node.width() * node.scaleX();
                     const newH = node.height() * node.scaleY();
@@ -639,7 +712,9 @@ function SplitsPanel({
               className="flex items-center justify-between py-1"
             >
               <span className="font-mono text-xs">
-                <span className="text-slate-500">order {s.reading_order}: </span>
+                <span className="text-slate-500">
+                  order {s.reading_order}:{" "}
+                </span>
                 {s.suffix}
                 <span className="ml-2 text-slate-400">
                   L{s.L ?? "·"} R{s.R ?? "·"} T{s.T ?? "·"} B{s.B ?? "·"}
@@ -830,7 +905,8 @@ function Toggle({
   value: boolean | null | undefined;
   onChange: (v: boolean | null) => void;
 }) {
-  const next = value === null || value === undefined ? true : value ? false : null;
+  const next =
+    value === null || value === undefined ? true : value ? false : null;
   return (
     <button
       type="button"

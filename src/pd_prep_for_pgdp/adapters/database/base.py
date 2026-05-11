@@ -10,7 +10,14 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from ...core.models import Job, PageRecord, Project, SystemDefaults
+from ...core.models import (
+    Job,
+    PageRecord,
+    PageStageState,
+    PageStageStatus,
+    Project,
+    SystemDefaults,
+)
 
 
 class IDatabase(Protocol):
@@ -25,7 +32,12 @@ class IDatabase(Protocol):
     async def put_system_defaults(self, owner_id: str, defaults: SystemDefaults) -> None: ...
 
     # ── Projects ────────────────────────────────────────────────────────────
-    async def list_projects(self, owner_id: str) -> list[Project]: ...
+    async def list_projects(
+        self,
+        owner_id: str,
+        *,
+        include_archived: bool = False,
+    ) -> list[Project]: ...
 
     async def get_project(self, project_id: str) -> Project | None: ...
 
@@ -53,3 +65,18 @@ class IDatabase(Protocol):
     async def put_job(self, job: Job) -> None: ...
 
     async def list_recent_jobs(self, owner_id: str, limit: int = 50) -> list[Job]: ...
+
+    # ── Page stages (per-page DAG state, M1) ────────────────────────────────
+    async def get_page_stage(self, project_id: str, page_id: str, stage_id: str) -> PageStageState | None: ...
+
+    async def put_page_stage(self, state: PageStageState) -> None: ...
+
+    async def list_page_stages_for_page(self, project_id: str, page_id: str) -> list[PageStageState]: ...
+
+    async def list_page_stages_by_status(
+        self, project_id: str, status: PageStageStatus
+    ) -> list[PageStageState]: ...
+
+    async def delete_page_stages_for_page(self, project_id: str, page_id: str) -> None: ...
+
+    async def init_page_stages_for_page(self, project_id: str, page_id: str) -> int: ...

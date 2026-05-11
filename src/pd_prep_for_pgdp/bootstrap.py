@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import platform
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from importlib import resources
 from typing import Any
 
@@ -34,6 +34,8 @@ from .api.auth import install_auth_routes
 from .api.data import install_data_routes
 from .api.gpu import install_gpu_routes
 from .api.middleware.error_handler import install_error_handlers
+from .api.middleware.request_id import RequestIdMiddleware
+from .core.logging_config import configure_logging
 from .dispatcher.base import IDispatcher
 from .dispatcher.batched import BatchDispatcher
 from .dispatcher.immediate import ImmediateDispatcher
@@ -110,7 +112,9 @@ def build_gpu_backend(
     log.info("Selected GPU backend: %s", chosen)
 
     if chosen == "local":
-        return LocalBackend()
+        # LocalBackend subclasses CpuBackend (DocTR/PyTorch auto-uses CUDA);
+        # adapters wire identically.
+        return LocalBackend(storage=storage, database=database, executor=executor)
     if chosen in {"cpu", "mps"}:
         # MPS is wired into DocTR automatically when torch sees Apple Silicon;
         # the rest of the pipeline runs on CPU. We treat them as the same
@@ -141,6 +145,11 @@ def build_dispatcher(settings: Settings, gpu: GPUBackend) -> IDispatcher:
 
 def build_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
+
+    # Install root logging handler once per process. Idempotent: a second
+    # build_app() (uvicorn --reload) replaces our handler rather than
+    # stacking, so callers don't double-log.
+    configure_logging(settings.log_format)
 
     storage = build_storage(settings)
     database = build_database(settings)
@@ -180,10 +189,8 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             # poll iterations. Cancelling mid-poll leaves a worker thread
             # mid-SQLite-call, which segfaults at the C boundary when we
             # close the connection below.
-            try:
+            with suppress(Exception):  # pragma: no cover - defensive
                 job_runner.stop()
-            except Exception:  # pragma: no cover - defensive
-                pass
 
             tasks = []
             for attr in ("dispatcher_task", "job_runner_task", "executor_task"):
@@ -192,10 +199,8 @@ def build_app(settings: Settings | None = None) -> FastAPI:
                     task.cancel()
                     tasks.append(task)
             for task in tasks:
-                try:
+                with suppress(asyncio.CancelledError, Exception):
                     await task
-                except (asyncio.CancelledError, Exception):
-                    pass
             await database.close()
 
     app = FastAPI(
@@ -211,6 +216,13 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Request-id middleware is added last so it ends up outermost in the
+    # ASGI stack — it must run before CORS on incoming requests so the
+    # correlation id is set on the contextvar before any handler logs,
+    # and after CORS on the response so the header survives. Starlette
+    # applies `add_middleware` calls in reverse order, hence "last = outermost".
+    app.add_middleware(RequestIdMiddleware, header_name=settings.request_id_header)
+
     app.state.settings = settings
     app.state.job_events = job_events
     app.state.storage = storage
@@ -218,11 +230,26 @@ def build_app(settings: Settings | None = None) -> FastAPI:
     app.state.auth = auth
     app.state.gpu_backend = gpu
     app.state.dispatcher = dispatcher
+    app.state.job_runner = job_runner
 
     install_error_handlers(app)
     install_auth_routes(app)
     install_data_routes(app)
     install_gpu_routes(app)
+
+    # /healthz is mode-agnostic — gpu_worker_only nodes still need a liveness
+    # probe — and unauthenticated by design (orchestrators don't carry tokens).
+    # Mount before the SPA fallback so the route wins over the catch-all.
+    from .api.healthz import install_healthz
+
+    install_healthz(app)
+
+    # /api/server-info is local-mode UX (§L1 step 3) but harmless on
+    # self-hosted / managed shapes — leave it on for parity. Mount before
+    # the SPA fallback so the route wins over the catch-all.
+    from .api.server_info import install_server_info
+
+    install_server_info(app)
 
     if settings.mode != "gpu_worker_only":
         from .api.env_js import install_env_js

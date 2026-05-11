@@ -10,12 +10,33 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+# ─── Shared base ─────────────────────────────────────────────────────────────
+
+
+class ApiModel(BaseModel):
+    """Base for wire-shape models.
+
+    Sets `json_schema_serialization_defaults_required=True` so fields with
+    `default_factory=...` (or simple defaults) are emitted as **required** in
+    the serialization JSON Schema. The server always populates them on the
+    way out, so the OpenAPI spec — and the `openapi-typescript` codegen
+    derived from it — should treat them as guaranteed-present, not optional.
+
+    Behavior on **input** is unchanged: defaults still apply when omitted,
+    because Pydantic uses the *validation* schema (where these remain
+    optional) for request bodies. FastAPI hands `model_json_schema(mode=...)`
+    explicitly per direction.
+    """
+
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
 
 # ─── SystemDefaults ──────────────────────────────────────────────────────────
 
 
-class SystemDefaults(BaseModel):
+class SystemDefaults(ApiModel):
     text_threshold: int = 140
     page_h_w_ratio: float = 1.65
     default_fuzzy_pct: float = 0.02
@@ -35,7 +56,7 @@ class SystemDefaults(BaseModel):
 # ─── ProjectConfig ───────────────────────────────────────────────────────────
 
 
-class ProjectConfig(BaseModel):
+class ProjectConfig(ApiModel):
     book_name: str
     source_uri: str
 
@@ -90,7 +111,7 @@ class PageProcessingStatus(str, Enum):
     error = "error"
 
 
-class PageConfigOverrides(BaseModel):
+class PageConfigOverrides(ApiModel):
     """Per-page processing overrides. Every field None = inherit."""
 
     initial_crop: tuple[int, int, int, int] | None = None
@@ -109,7 +130,7 @@ class PageConfigOverrides(BaseModel):
     single_dimension_rescale: bool | None = None
 
 
-class PageSplit(BaseModel):
+class PageSplit(ApiModel):
     """Replaces the notebook's `PageSectionSplit`. Coords in PROCESSED image space."""
 
     suffix: str
@@ -125,7 +146,7 @@ class PageSplit(BaseModel):
     ocr_engine: Literal["doctr", "tesseract"] | None = None
 
 
-class IllustrationRegion(BaseModel):
+class IllustrationRegion(ApiModel):
     """Coords in SOURCE image space (original scan, pre-processing)."""
 
     index: int = 1
@@ -142,7 +163,7 @@ class IllustrationRegion(BaseModel):
     convert_to_grayscale: bool = False
 
 
-class PageOutput(BaseModel):
+class PageOutput(ApiModel):
     """One per split, or one for whole page."""
 
     full_prefix: str
@@ -161,7 +182,7 @@ class PageOutput(BaseModel):
     ocr_error: str | None = None
 
 
-class PageRecord(BaseModel):
+class PageRecord(ApiModel):
     project_id: str
     idx0: int
     prefix: str
@@ -188,6 +209,78 @@ class PageRecord(BaseModel):
 
     outputs: list[PageOutput] = Field(default_factory=list)
 
+    # ── Split-child fields (M2 §E) ──────────────────────────────────────────
+    # Spec: docs/specs/pipeline-task-model.md §"Splits as sibling pages
+    # (Q6 lock)" → "Data model on Page". A split turns one parent page into
+    # N sibling child pages; each child is a first-class PageRecord that
+    # carries these five linking fields. All-or-none: a row either has
+    # `parent_page_id` set with the four other split fields populated
+    # (split-child), OR all five fields are None (root page). The validator
+    # below enforces that contract. `reading_order` is the only non-null
+    # field — root rows default to 0; siblings inherit the user's split
+    # definition's order.
+
+    parent_page_id: str | None = None
+    """FK to the parent PageRecord's `page_id`. NULL for root pages.
+
+    The parent page lives in the same project and is identified by its
+    `page_id` string (today the zero-padded 4-digit `idx0`, e.g. `"0042"`).
+    """
+
+    source_crop_bbox: tuple[int, int, int, int] | None = None
+    """`(x, y, w, h)` on the parent's source image, in original-source
+    coordinate space. Required when `parent_page_id IS NOT NULL`.
+    """
+
+    split_index: int | None = None
+    """1-based index among siblings (1, 2, 3, ...). NULL for root pages."""
+
+    split_at_stage: str | None = None
+    """The stage on the parent at which the split was created (a stage_id
+    string from `PAGE_STAGE_IDS`). Typically `auto_detect_attrs`; the spec
+    permits any stage whose output is an image."""
+
+    split_suffix: str | None = None
+    """The user-chosen suffix that gets appended in the page prefix
+    (`a`, `b`, `cl`, ...)."""
+
+    reading_order: int = 0
+    """Determines output sort order across siblings. Inherited from the
+    user's split definition. Defaults to 0 for root pages."""
+
+    @model_validator(mode="after")
+    def _validate_split_fields_all_or_none(self) -> PageRecord:
+        """Enforce that split fields are all-or-none, keyed off `parent_page_id`.
+
+        - If `parent_page_id` is set: `source_crop_bbox`, `split_index`,
+          `split_at_stage`, `split_suffix` must ALL be set (non-None).
+        - If `parent_page_id` is None: NONE of the four peers may be set.
+
+        `reading_order` is exempt — it has a real default (0) and applies
+        to every page.
+        """
+        peers = {
+            "source_crop_bbox": self.source_crop_bbox,
+            "split_index": self.split_index,
+            "split_at_stage": self.split_at_stage,
+            "split_suffix": self.split_suffix,
+        }
+        missing = [name for name, value in peers.items() if value is None]
+        present = [name for name, value in peers.items() if value is not None]
+
+        if self.parent_page_id is not None:
+            if missing:
+                raise ValueError(
+                    f"split-child PageRecord (parent_page_id={self.parent_page_id!r}) "
+                    f"requires all split fields; missing: {missing}"
+                )
+        else:
+            if present:
+                raise ValueError(
+                    f"root PageRecord (parent_page_id=None) must not set split fields; got: {present}"
+                )
+        return self
+
 
 # ─── Pipeline state ──────────────────────────────────────────────────────────
 
@@ -199,7 +292,7 @@ class StepStatus(str, Enum):
     error = "error"
 
 
-class StepState(BaseModel):
+class StepState(ApiModel):
     status: StepStatus = StepStatus.pending
     pages_complete: list[int] = Field(default_factory=list)
     pages_error: dict[int, str] = Field(default_factory=dict)
@@ -212,7 +305,7 @@ class StepState(BaseModel):
 StepId = Literal[1, 2, 4, 5, 6, 7, 8, 9, 10]
 
 
-class PipelineState(BaseModel):
+class PipelineState(ApiModel):
     steps: dict[int, StepState] = Field(default_factory=dict)
 
 
@@ -228,7 +321,7 @@ class ProjectStatus(str, Enum):
     complete = "complete"
 
 
-class Project(BaseModel):
+class Project(ApiModel):
     id: str
     owner_id: str = "default"
     name: str
@@ -240,12 +333,13 @@ class Project(BaseModel):
     config: ProjectConfig
     pipeline_state: PipelineState
     storage_prefix: str
+    archived: bool = False
 
 
 # ─── ResolvedPageConfig (output of resolver; not persisted) ──────────────────
 
 
-class ResolvedPageConfig(BaseModel):
+class ResolvedPageConfig(ApiModel):
     """Flat, fully-resolved per-page config consumed by the pipeline."""
 
     text_threshold: int
@@ -298,16 +392,19 @@ class JobType(str, Enum):
     batch_text_postprocess = "batch_text_postprocess"
     batch_extract_illustrations = "batch_extract_illustrations"
     build_package = "build_package"
+    # Per-page stage execution via the async route (?async=true).
+    # payload: {"project_id": str, "page_id": str, "stage_id": str, "device": str}  # noqa: ERA001
+    run_page_stage = "run_page_stage"
 
 
-class JobProgress(BaseModel):
+class JobProgress(ApiModel):
     current: int = 0
     total: int = 0
     current_page: int | None = None
     message: str = ""
 
 
-class Job(BaseModel):
+class Job(ApiModel):
     id: str
     project_id: str
     owner_id: str = "default"
@@ -325,17 +422,94 @@ class Job(BaseModel):
     The jobs table stores Job as JSON, so this is schema-migration-free."""
 
 
+# ─── PageStageState (per-page stage DAG persistence) ────────────────────────
+
+
+class PageStageStatus(str, Enum):
+    """Per-stage status — see canonical spec §SQLite schema (Q1 lock).
+
+    `not-applicable` indicates a stage is skipped because of page type
+    (e.g. blank-page short-circuit skips `decode_source` … `morph_fill`).
+    """
+
+    not_run = "not-run"
+    running = "running"
+    clean = "clean"
+    dirty = "dirty"
+    failed = "failed"
+    not_applicable = "not-applicable"
+
+
+# Canonical stage-ID list — single source of truth at the model layer; the
+# DAG module (M1 §B) re-uses this tuple to enumerate stages and the SQLite
+# schema's CHECK constraint pins the same set. Order matches a reasonable
+# topological walk of the DAG (per spec §"Per-page stage DAG"); the DAG
+# module is the authority on actual edges.
+PAGE_STAGE_IDS: tuple[str, ...] = (
+    # Pre-existing-today (already discrete; just naming them).
+    "ingest_source",
+    "thumbnail",
+    "auto_detect_attrs",
+    "auto_detect_illustrations",
+    # Decomposed from process_page_cpu (4c-4o).
+    "decode_source",
+    "initial_crop",
+    "manual_deskew_pre",
+    "grayscale",
+    "threshold",
+    "invert",
+    "find_content_edges",
+    "crop_to_content",
+    "auto_deskew",
+    "morph_fill",
+    "rescale",
+    "canvas_map",
+    # Alt to canvas_map for blank-page short-circuit.
+    "blank_proof_synth",
+    # Post-Step-4 chain.
+    "ocr_crop",
+    "extract_illustrations",
+    "ocr",
+    "text_postprocess",
+    "text_review",
+)
+
+
+class PageStageState(ApiModel):
+    """One per-page stage row — state of stage `stage_id` on page `page_id`.
+
+    Spec: `docs/specs/pipeline-task-model.md` §"SQLite schema" (Q1 lock).
+
+    `page_id` is a string so it can encode split-child identity later (e.g.
+    `0042/splits/a` for the first split-child of page 42). For root pages
+    today, `page_id` is the zero-padded 4-digit `idx0`.
+    """
+
+    project_id: str
+    page_id: str
+    stage_id: str
+    status: PageStageStatus = PageStageStatus.not_run
+    stage_version: int = 1
+    artifact_key: str | None = None
+    config_hash: str | None = None
+    input_hash: str | None = None
+    last_run_at: float | None = None  # epoch seconds
+    duration_ms: int | None = None
+    error_message: str | None = None
+    job_id: str | None = None  # last job that touched this row
+
+
 # ─── OCR ─────────────────────────────────────────────────────────────────────
 
 
-class BoundingBox(BaseModel):
+class BoundingBox(ApiModel):
     left: int
     top: int
     width: int
     height: int
 
 
-class OcrWord(BaseModel):
+class OcrWord(ApiModel):
     id: str
     text: str
     confidence: float

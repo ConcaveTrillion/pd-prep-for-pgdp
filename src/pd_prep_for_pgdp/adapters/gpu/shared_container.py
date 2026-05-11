@@ -9,6 +9,7 @@ from __future__ import annotations
 from .base import (
     BatchJobItem,
     BatchJobResult,
+    BatchProgressCb,
     GPUBackend,
     OcrPageRequest,
     OcrPageResponse,
@@ -32,5 +33,12 @@ class SharedContainerBackend(GPUBackend):
     async def run_ocr(self, req: OcrPageRequest) -> OcrPageResponse:
         raise NotImplementedError("shared_container.run_ocr not yet wired")
 
-    async def run_batch(self, items: list[BatchJobItem]) -> list[BatchJobResult]:
+    async def run_batch(
+        self,
+        items: list[BatchJobItem],
+        *,
+        progress_cb: BatchProgressCb | None = None,
+    ) -> list[BatchJobResult]:
+        # `progress_cb` is part of the Protocol; the HTTP path will hook into
+        # SSE / chunked-transfer events once the route + client are wired.
         raise NotImplementedError("shared_container.run_batch not yet wired")

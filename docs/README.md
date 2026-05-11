@@ -13,23 +13,30 @@ in [`../specs/`](../specs/) (which capture the *target* design).
 | [`06-deployment.md`](06-deployment.md) | Local / self-hosted / managed shapes |
 | [`07-testing.md`](07-testing.md) | TDD conventions, test layout, what's covered |
 | [`08-roadmap.md`](08-roadmap.md) | What's done + what's next, by priority |
+| [`futures/`](futures/) | Future-state design notes (not current milestones) |
 
 ## Status snapshot
 
-- **128 tests passing** in `tests/` (`PYTHONPATH=src .venv/bin/python -m pytest tests/ -q`)
-- 22 build iterations logged in
-  `~/.claude/projects/-workspaces-ocr-container-pd-prep-for-pgdp/memory/project_state.md`
+- **~381 tests collected** in `tests/` — run via `make test` (excludes
+  `tests/e2e/`). The Vitest SPA suite (`make frontend-test`) sits alongside
+  it with **61+ tests**; both are wired into `make ci`.
 - **Backend** is feature-complete relative to specs 01/02/04/05/07/08; the CPU
   pipeline is wired end-to-end (ingest → process_page → ocr → text_postprocess
   → package), with auto-detect + layout-aware OCR via `pd-book-tools`.
 - **Frontend** covers every spec-03 page (ProjectList, ProjectConfigure,
-  PageWorkbench, TextReview, ReviewQueue, Jobs, Settings, Login). All pages
-  are functional; Vitest tests are deferred (no npm in the devcontainer).
+  PageWorkbench, TextReview, ReviewQueue, Jobs, Settings, Login). Vitest +
+  msw harness landed (roadmap §9); pure-function and wire-level coverage in
+  place for `lineDiff`, `wordOffsets`, `marquee`, `api/client`, `api/pages`,
+  `api/workbench`, `WordBboxOverlay`, `ProjectListPage`, `TextReviewPage`.
 - **Adapters fully wired:** `IStorage` (filesystem + S3), `IDatabase` (SQLite),
-  `IAuth` (none / apikey / jwt), `GPUBackend` (CPU + Modal scaffold).
-- **Adapters scaffolded:** `IDatabase` Postgres, `GPUBackend` local-CUDA,
-  `GPUBackend` shared-container.
-- **Repo is not yet a git repo.** User to `git init` + create remote.
+  `IAuth` (none / apikey / jwt), `GPUBackend` (CPU + Modal dispatcher).
+- **Adapters scaffolded (raise `NotImplementedError`):** Postgres database
+  adapter is not yet written (P0 #2), Modal-side function bodies in
+  `adapters/gpu/modal_app.py` (P0 #1), `adapters/gpu/local.py` CUDA path,
+  `adapters/gpu/shared_container.py`.
+- **Operations:** structured logging + request-id correlation
+  (roadmap §18), `GET /healthz` liveness probe (§19), CI guard that the
+  built wheel contains the SPA bundle (§22) all landed.
 
 ## Spec ↔ implementation index
 
@@ -53,6 +60,7 @@ docs are about **the actual code** and may diverge from the spec when an
 intentional decision was made; those divergences are called out explicitly.
 
 For a new contributor (or AI assistant), the recommended reading order:
+
 1. [`../CLAUDE.md`](../CLAUDE.md) — quick start
 2. [`01-overview.md`](01-overview.md) — high-level shape
 3. [`08-roadmap.md`](08-roadmap.md) — what to work on next

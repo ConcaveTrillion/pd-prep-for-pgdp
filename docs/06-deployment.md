@@ -12,13 +12,23 @@ curl -sSL https://raw.githubusercontent.com/ConcaveTrillion/pd-prep-for-pgdp/mai
 pgdp-prep
 ```
 
-`install.sh` (mirrors `pd-ocr-cli/install.sh`):
+`install.sh`:
 
 1. Install `uv` if missing.
 2. Detect NVIDIA via `nvidia-smi`; if found, set `EXTRA_INDEX` to the right
    PyTorch CUDA wheel index and add the `[cuda]` extra.
 3. Resolve the latest GitHub tag from the `tags` API.
-4. `uv tool install --reinstall git+https://github.com/.../pd-prep-for-pgdp[@tag][cuda]`.
+4. Look up the GitHub Release for that tag, find the `.whl` asset attached
+   to it (uploaded by `.github/workflows/release.yml`), download it to a
+   temp dir.
+5. `uv tool install --reinstall <wheel-path>[cuda]`.
+
+Step 4 is what removes the historical Node/npm requirement: the wheel
+already contains the built React SPA, so the user never builds the
+frontend. If the release has no wheel asset (workflow failure, or an old
+tag from before this was wired up), install.sh hard-fails with a pointer
+to the release URL rather than silently falling back to a `git+...`
+install (which would require Node).
 
 Defaults at startup (no env vars set):
 
@@ -31,8 +41,24 @@ Defaults at startup (no env vars set):
 | `auth_mode` | `none` |
 | `gpu_backend` | auto-detect (`local` if cupy importable, else `mps` on macOS arm64, else `cpu`) |
 | `dispatch_interval_seconds` | `0` (immediate) |
+| `stage_write_pool_size` | `min(cpu_count(), 4)` (canonical spec Q8) |
+| `stage_write_queue_cap` | `4 × stage_write_pool_size` (canonical spec Q8) |
+| `reconcile_interval_seconds` | `1800` (30 min) — periodic dual-write reconciler |
 
 `__main__.py` opens a browser tab on start unless `--no-browser` is passed.
+
+### Disk-cost implication of every-intermediate stage persistence
+
+Per `docs/specs/pipeline-task-model.md` Q3 (locked), every stage of every
+page persists its output to disk on every run — roughly **16× source-page
+footprint per page**. A 500-page book at 2 MB/source-page is ~16 GB of
+stage artifacts under `~/pgdp-projects/<id>/pages/`. Configure
+`PGDP_DATA_ROOT` accordingly.
+
+The `pgdp-prep reindex <project_id>` CLI walks the page tree and the
+`page_stages` DB rows, reporting drift; `--heal` deletes orphan files
+and marks DB rows whose file is missing as `failed`. Run it after a
+process crash or manual file moves.
 
 ## Self-hosted
 
@@ -70,14 +96,17 @@ What's working:
 
 What still needs work:
 
+All cloud/remote-mode follow-ups are parked under roadmap "Deferred —
+remote / cloud mode" while local-first lands:
+
 - **`modal_app.py` function bodies** — `process_page` / `run_ocr` /
-  `run_batch` raise `NotImplementedError`. The Modal-side container needs
-  its own S3 IStorage so it can read source bytes + write outputs back.
-  Roadmap item #1.
-- **Postgres adapter** — schema exists in spec 08; the `IDatabase` impl is
-  deferred (psycopg + SQLAlchemy not in this devcontainer's venv).
-- **`.github/workflows/release.yml`** builds the container on tag push but
-  doesn't push to ECR (the user's registry isn't configured).
+  `run_batch` raise `NotImplementedError` (roadmap §D1).
+- **Postgres adapter** — scaffold shipped (commit `77072c6`); live-DB
+  integration tests deferred (roadmap §D2).
+- **`.github/workflows/release.yml`** builds the container on tag push
+  but doesn't push to a registry (roadmap §D4).
+- **install.sh end-to-end** has never been exercised against a clean
+  shell with internet (roadmap §D3).
 
 Cost estimate (per spec 09): with 100 books/month, ~$70/month total. Modal
 GPU charges are ~$2/book; rest is Fargate (~$10) + Aurora (~$45) + S3 (~$5).
@@ -90,7 +119,7 @@ GPU charges are ~$2/book; rest is Fargate (~$10) + Aurora (~$45) + S3 (~$5).
 |---|---|---|
 | `test` | every push | uv sync + ruff + pytest |
 | `build-frontend` | every push | npm install + `vite build`; uploads `dist/` |
-| `build-wheel` | every push (after test + build-frontend) | uv build with frontend bundled into the wheel |
+| `build-wheel` | every push (after test + build-frontend) | `uv build --wheel` with frontend bundled into the wheel; on tag push, attaches the wheel to the GitHub Release |
 | `build-container` | tag push only | docker build (no push wired up — user's ECR config) |
 
 ## Frontend bundling

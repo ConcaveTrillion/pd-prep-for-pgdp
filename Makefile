@@ -1,9 +1,9 @@
 .PHONY: help setup refresh-version install uninstall reset remove-venv lint format \
         pre-commit-check test e2e build clean ci local-setup dev-local install-local \
-        uninstall-local check-local-editable run-local frontend-install frontend-build \
-        frontend-dev openapi-export upgrade-pd-book-tools release-patch release-minor \
-        release-major _do-release docker-build docker-run mise-download mise-setup \
-        mise-doctor
+        uninstall-local check-local-editable run run-cpu run-local frontend-install \
+        frontend-build frontend-dev frontend-test openapi-export upgrade-pd-book-tools \
+        release-patch release-minor release-major _do-release docker-build docker-run \
+        mise-download mise-setup mise-doctor upgrade-deps
 
 # ---------------------------------------------------------------------------
 # Peer-repo discovery for *-local targets
@@ -34,6 +34,12 @@ setup: ## Sync deps + install pre-commit hooks + refresh version
 
 refresh-version: ## Force hatch-vcs to re-derive `pgdp-prep --version` from current git state
 	@echo "🔄 Reinstalling pd-prep-for-pgdp so hatch-vcs picks up the current HEAD / tags..."
+	@# Hatchling's `force-include` of src/pd_prep_for_pgdp/static refuses to
+	@# resolve when the directory is missing (FileNotFoundError during the
+	@# editable build), so make sure it exists before the editable install.
+	@# The wheel-side SPA check (build_hooks/spa_check.py) still gates real
+	@# wheel builds on the bundled index.html being present.
+	@mkdir -p src/pd_prep_for_pgdp/static
 	@UV_LINK_MODE=copy uv pip install -e . --reinstall-package pd-prep-for-pgdp
 	@uv run pgdp-prep --version || true
 
@@ -68,6 +74,29 @@ remove-venv: ## Remove the virtual environment
 
 reset: clean remove-venv setup ## Rebuild the virtual environment
 	@echo "✅ Environment Reset!"
+
+upgrade-deps: ## Upgrade dependencies and sync local environment
+	@if uv run --no-sync python scripts/detect_dev_local.py >/dev/null 2>&1; then \
+		echo "❌ dev-local install detected (editable pd-book-tools)."; \
+		echo "   'make upgrade-deps' would silently revert it to the pinned tag."; \
+		echo "   Use 'make upgrade-deps-local' to upgrade and re-install editable."; \
+		echo "   Or set PD_DEV_LOCAL=0 and run 'make reset' to switch to canonical."; \
+		exit 1; \
+	fi
+	@echo "⬆️ Upgrading dependency lockfile..."
+	uv lock --upgrade
+	@echo "📦 Syncing upgraded dependencies..."
+	uv sync --group dev
+	@echo "✅ Dependencies upgraded and environment synced!"
+
+upgrade-deps-local: ## [local-dev] Upgrade deps then restore editable pd-book-tools
+	@echo "⬆️ Upgrading dependency lockfile..."
+	uv lock --upgrade
+	@echo "📦 Syncing upgraded dependencies..."
+	uv sync --group dev
+	@echo "🔁 Restoring editable pd-book-tools sibling install..."
+	@$(MAKE) --no-print-directory dev-local
+	@echo "✅ Dependencies upgraded; editable pd-book-tools restored."
 
 upgrade-pd-book-tools: ## Pin pd-book-tools to its latest GitHub tag
 	@echo "🔍 Fetching latest pd-book-tools tag..."
@@ -168,16 +197,42 @@ frontend-dev: ## Run Vite dev server (frontend only)
 	@$(call _npm,install)
 	@$(call _npm,run dev)
 
-openapi-export: ## Regenerate frontend/src/api/types.ts from /openapi.json
+frontend-test: ## Run the SPA's vitest suite (jsdom + msw)
+	@echo "🧪 Running frontend (vitest) tests..."
+	@$(call _npm,install)
+	@$(call _npm,test)
+
+frontend-lint: ## Run ESLint on the SPA
+	@echo "🧹 Running frontend ESLint..."
+	@$(call _npm,install)
+	@$(call _npm,run lint)
+
+frontend-format-check: ## Check SPA formatting with Prettier
+	@echo "🎨 Checking frontend formatting (Prettier)..."
+	@$(call _npm,install)
+	@$(call _npm,run format:check)
+
+frontend-format: ## Apply Prettier formatting to the SPA
+	@echo "🎨 Applying Prettier to the frontend..."
+	@$(call _npm,install)
+	@$(call _npm,run format)
+
+openapi-export: ## Regenerate openapi.json + frontend/src/api/types.gen.ts
 	@echo "📤 Exporting OpenAPI schema and regenerating TS types..."
-	uv run python -c "import json, sys; from pd_prep_for_pgdp.bootstrap import build_app; \
-print(json.dumps(build_app().openapi(), indent=2))" > frontend/openapi.json
+	# Write to repo-root openapi.json — the committed source-of-truth that
+	# tests/test_openapi_spec_committed.py drift-guards against. The frontend
+	# `openapi:gen` script reads `../openapi.json` (see frontend/package.json).
+	#
+	# Codegen lands in `types.gen.ts`, *not* the hand-written `types.ts`.
+	# SPA consumers still import from `types.ts`; the generated file exists
+	# so we can audit the diff and migrate surfaces deliberately (P4 #20).
+	uv run python scripts/export_openapi.py openapi.json
 	@if $(HAVE_MISE); then \
-		cd frontend && $(MISE) exec -- npx --yes openapi-typescript openapi.json -o src/api/types.ts; \
+		cd frontend && $(MISE) exec -- npx --yes openapi-typescript ../openapi.json -o src/api/types.gen.ts; \
 	else \
-		cd frontend && npx --yes openapi-typescript openapi.json -o src/api/types.ts; \
+		cd frontend && npx --yes openapi-typescript ../openapi.json -o src/api/types.gen.ts; \
 	fi
-	@echo "✅ frontend/src/api/types.ts regenerated."
+	@echo "✅ frontend/src/api/types.gen.ts regenerated."
 
 # ---------------------------------------------------------------------------
 # Lint / format / test / build
@@ -201,7 +256,13 @@ e2e: frontend-build ## Run Playwright E2E tests (requires `playwright install ch
 	uv run --group e2e pytest tests/e2e -v
 
 build: frontend-build ## Build the wheel (with frontend bundled)
-	uv build
+	# `--wheel` skips the sdist step. The build hook in
+	# build_hooks/spa_check.py refuses to build a wheel without
+	# src/pd_prep_for_pgdp/static/index.html, and that directory is
+	# .gitignore'd — so the default `uv build` (sdist → wheel-from-sdist)
+	# fails because the unpacked sdist has no SPA. Wheel-only is the
+	# supported path; CI mirrors this in .github/workflows/release.yml.
+	uv build --wheel
 
 clean: ## Clean cache + build artifacts
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
@@ -210,7 +271,7 @@ clean: ## Clean cache + build artifacts
 	find . -type d -name ".ruff_cache" -exec rm -rf {} + 2>/dev/null || true
 	rm -rf dist/ src/pd_prep_for_pgdp/static/ frontend/dist/ 2>/dev/null || true
 
-ci: setup pre-commit-check test build ## Full CI pipeline
+ci: setup pre-commit-check test frontend-lint frontend-format-check frontend-test build ## Full CI pipeline
 
 # ---------------------------------------------------------------------------
 # Local editable workflow (requires ../pd-book-tools sibling checkout)
@@ -227,11 +288,13 @@ dev-local: ## [local-dev] Install pd-book-tools editable from ../pd-book-tools
 	$(call _require_peer_book_tools)
 	UV_LINK_MODE=copy uv sync --group dev
 	UV_LINK_MODE=copy uv pip install -e "$(PEER_BOOK_TOOLS)"
+	@mkdir -p .venv && touch .venv/.dev-local
 	@$(MAKE) --no-print-directory check-local-editable
 
 install-local: ## [local-dev] Install pgdp-prep with both . and ../pd-book-tools editable
 	$(call _require_peer_book_tools)
 	UV_LINK_MODE=copy uv tool install --force --reinstall --no-sources --editable . --with-editable "$(PEER_BOOK_TOOLS)"
+	@mkdir -p .venv && touch .venv/.dev-local
 	@echo "✅ 'pgdp-prep' is on PATH and tracks ./ + $(PEER_BOOK_TOOLS) live."
 
 uninstall-local: ## [local-dev] Uninstall the local-editable pgdp-prep tool
@@ -246,6 +309,35 @@ print('module_file=', module_file); \
 print('expected_peer=', peer); \
 sys.exit(0 if module_file.startswith(peer + os.sep) or module_file == peer else 1)" \
 	|| (echo "❌ pd-book-tools is not local/editable. Run: make dev-local" >&2; exit 1)
+
+# ---------------------------------------------------------------------------
+# `make run` — canonical local-mode entry point.
+#
+# Builds the SPA bundle into src/pd_prep_for_pgdp/static/ first (so the
+# single FastAPI process serves the React app at `/`), then launches
+# `pgdp-prep`. App comes up at http://127.0.0.1:8765 (or the next free
+# port if 8765 is taken — see L1 fallback in `__main__.py`).
+#
+# GPU is auto-detected: with a working CUDA runtime the autodetect picks
+# `LocalBackend` (which subclasses CpuBackend), and DocTR/PyTorch use
+# `cuda:0` automatically. Watch the startup log for "local backend on
+# cuda:0" vs "local backend on cpu" to confirm.
+#
+# Pass extra args via ARGS, e.g. `make run ARGS="--port 9000"`.
+# ---------------------------------------------------------------------------
+run: frontend-build ## Build the SPA + launch pgdp-prep on :8765 (auto GPU)
+	@echo "🚀 Launching pgdp-prep at http://127.0.0.1:8765 (auto-detect GPU)..."
+	uv run pgdp-prep $(ARGS)
+
+# ---------------------------------------------------------------------------
+# `make run-cpu` — same as `make run` but force the CPU backend.
+#
+# Use when a GPU is present but you want to skip CUDA paths: debugging,
+# weak GPU, or working around CUDA OOM on a smaller card.
+# ---------------------------------------------------------------------------
+run-cpu: frontend-build ## Build SPA + launch pgdp-prep with PGDP_GPU_BACKEND=cpu
+	@echo "🚀 Launching pgdp-prep at http://127.0.0.1:8765 (CPU backend forced)..."
+	PGDP_GPU_BACKEND=cpu uv run pgdp-prep $(ARGS)
 
 run-local: check-local-editable ## [local-dev] Run pgdp-prep against the local editable workspace
 	env -u VIRTUAL_ENV UV_NO_SYNC=1 uv run pgdp-prep $(ARGS)

@@ -20,6 +20,7 @@ checkout is required for local-dev workflows that edit both repos at once.
 ## What needs Node, what doesn't
 
 **Doesn't need Node:**
+
 - `make setup` (uv sync + pre-commit hooks)
 - `make test` (pytest only — 128 tests, ~12 s)
 - `make install-local` (editable wheel install)
@@ -27,6 +28,7 @@ checkout is required for local-dev workflows that edit both repos at once.
 - Iterating on FastAPI routes / pipeline / models / adapters
 
 **Needs Node:**
+
 - `make frontend-build` — Vite build, copies SPA into `src/.../static/`.
 - `make frontend-dev` — Vite dev server on `:5173`.
 - `make build` — depends on `frontend-build` so the wheel ships with the SPA.
@@ -163,9 +165,13 @@ make release-major # ditto, major
 git push --tags    # CI picks up the tag and builds the container
 ```
 
-`hatch-vcs` derives the wheel version from the git tag at install time;
-`install.sh` resolves the latest GitHub tag from the `tags` API and runs
-`uv tool install git+...@<tag>`. There's no PyPI publish.
+`hatch-vcs` derives the wheel version from the git tag at build time. The
+`release.yml` workflow builds the wheel (with the prebuilt SPA bundled) and
+attaches it to the GitHub Release for the tag. `install.sh` resolves the
+latest tag from the `tags` API, downloads the `.whl` asset from that
+release, and runs `uv tool install <wheel-path>[extras]`. There's no PyPI
+publish, and end users don't need Node/npm because the SPA is already in
+the wheel.
 
 ## Repo layout
 
@@ -212,7 +218,7 @@ See [`docs/01-overview.md`](docs/01-overview.md) for the full module tour.
 |---|---|---|
 | `test` | every push | uv sync + ruff + pytest |
 | `build-frontend` | every push | npm install + `vite build` (Node 24 via `actions/setup-node@v4`); uploads `dist/` artifact |
-| `build-wheel` | after test + build-frontend | downloads SPA artifact → `uv build` |
+| `build-wheel` | after test + build-frontend | downloads SPA artifact → `uv build --wheel`; on tag push, attaches the wheel to the GitHub Release |
 | `build-container` | tag push only | docker build (push not yet wired — needs ECR creds) |
 
 CI does not depend on mise; it pins versions in the workflow file directly.

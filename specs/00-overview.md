@@ -32,7 +32,7 @@ Three shapes, one codebase. Spec 09 has the full breakdown.
 | | Local | Self-hosted | Managed |
 |---|---|---|---|
 | Target user | Solo proofer | Small team | Hosted offering |
-| Install | `curl … install.sh | sh` (uv tool install from GitHub tag) | systemd unit on a VM | ECS Fargate task |
+| Install | `curl … install.sh \| sh` (uv tool install from GitHub tag) | systemd unit on a VM | ECS Fargate task |
 | Storage | Filesystem | Filesystem or S3 | S3 |
 | Database | SQLite | SQLite or Postgres | Postgres / Aurora |
 | GPU | Local CUDA / MPS / CPU | Local CUDA / Modal | Modal / shared GPU container |
@@ -174,16 +174,51 @@ without blocking any feature.
 
 ---
 
-## Pipeline as Background Jobs
+## Pipeline as a per-page DAG of stages
 
-Long operations (page processing, batch OCR, packaging) are submitted as jobs.
-The API returns a `job_id` immediately; the frontend subscribes to
-`GET /api/gpu/jobs/{job_id}/events` (SSE) for live progress.
+The canonical pipeline shape is a **DAG of named per-page stages**, defined
+in `docs/specs/pipeline-task-model.md`. Each page runs through 22 stages
+(`ingest_source` → `thumbnail` → `auto_detect_attrs` →
+`auto_detect_illustrations` → `decode_source` → `initial_crop` → … →
+`canvas_map` → `ocr_crop` → `ocr` → `text_postprocess` → `text_review`,
+plus the `blank_proof_synth` alt for blank pages and
+`extract_illustrations` parallel chain), each producing a typed
+in-memory artifact and a persisted on-disk artifact. Stages have explicit dependency edges; re-running one marks
+all downstream stages on the same page `dirty` and they re-execute on
+the next "run dirty" sweep.
+
+**Splits are sibling pages, not config.** When the user splits a page
+into N regions, the framework creates N child page rows, each with its
+own `parent_page_id` and `source_crop_bbox`. Each child runs the full
+DAG independently with its own stage state, so the user can re-run
+e.g. `auto_deskew` on just one column of a two-column page.
+
+**Long operations** (project-level fan-outs of a stage across all
+pages, packaging) are submitted as jobs. The API returns a `job_id`
+immediately; the frontend subscribes to
+`GET /api/gpu/jobs/{job_id}/events` (SSE) for live progress, including
+per-stage transitions.
 
 In **managed mode**, batch jobs go through the `BatchDispatcher` (5-min
-default flush window). Interactive operations (single-page workbench preview,
-text-review re-OCR) bypass the dispatcher and fire immediately, accepting
+default flush window). Interactive operations (single-stage runs from
+the workbench) bypass the dispatcher and fire immediately, accepting
 the Modal cold-start tax when it happens.
+
+`build_package` is **gated by `text_review.clean` on every page**. When
+the user submits `build_package` and any page is unreviewed, the job
+transitions to a special `awaiting_review` state and parks until the
+last page is marked reviewed (or the user cancels).
+
+See `docs/specs/pipeline-task-model.md` for:
+
+- The full per-stage DAG and dependency map.
+- The `page_stages` SQLite schema and dual-write reconciliation rules.
+- The bounded deferred-write executor and device-aware in-memory
+  artifact model.
+- The `STAGE_IMPL[stage_id][device]` registry that replaces the
+  former `LocalBackend` / `CpuBackend` class hierarchy.
+- Splits as sibling pages (`parent_page_id`, recursive splits,
+  unsplit).
 
 ---
 
@@ -194,66 +229,53 @@ the Modal cold-start tax when it happens.
 1. `POST /api/data/projects` → server creates project record + project.json
 2. Browser uploads zip (presigned PUT in hosted mode; direct upload in local mode)
 3. `POST /api/gpu/ingest` → server extracts zip, generates thumbnails, writes
-   page records → returns `job_id`
+   page records, runs per-page `ingest_source` / `thumbnail` /
+   `auto_detect_attrs` / `auto_detect_illustrations` stages → returns `job_id`
 4. Browser polls job until complete; page tagger becomes available
 
-### Per-page live preview (PageWorkbench)
+### Per-page workbench (interactive editing)
 
-1. User adjusts a parameter in the workbench
-2. `POST /api/gpu/process-page` with overrides → GPU backend processes page,
-   stores result, returns URL → canvas updates
-3. In managed mode the first call may show "GPU warming up" (~10–15 s);
-   subsequent calls within the warm window are fast
+1. User opens a page in the workbench. The stage chain rail shows the
+   current state of every stage (`clean`, `dirty`, `failed`, `not-run`,
+   `not-applicable`).
+2. User clicks "Run stage: threshold" (or adjusts threshold and clicks
+   "Apply + Run from here").
+3. `POST /api/pages/{page_id}/stages/threshold/run?mode=single` — the
+   stage runs synchronously, the rail updates with the new status, and
+   downstream stages cascade to `dirty`.
+4. The artifact viewer pane fetches `GET /api/pages/{page_id}/stages/threshold/artifact`
+   to show the new output side-by-side with the upstream input.
 
-### Batch pipeline
+### Project-level fan-out
 
-1. `POST /api/gpu/jobs` with `{type: "batch_process_pages", pages: […]}`
-2. In local/self-hosted: starts immediately
-3. In managed: queues for the next dispatcher flush (≤5 min)
-4. SSE stream pushes progress events to the UI
+1. `POST /api/projects/{id}/run-dirty` — submit a project-wide
+   "run-everything-dirty" job.
+2. In local/self-hosted: starts immediately, fans out per-page
+   `page.run_dirty` work through the in-process executor.
+3. In managed: queues for the next dispatcher flush (≤5 min).
+4. SSE stream pushes per-stage progress events to the UI.
 
----
+### Build package (with text-review gate)
 
-## Pipeline flow
-
-```
-[Ingest + Thumbnails]
-        │
-        ▼
-[Configure / Tag pages]   ←→   [PageWorkbench (any page, any time)]
-        │
-        ▼
-[Step 4 — Proofing image pipeline]
-        │
-        ▼
-[Step 4.5 — Illustration extraction]   (per configured region; spec 05)
-        │
-        ▼
-[Step 5 — Inspect proofing images]
-        │
-        ▼
-[Step 6 — Crop for OCR]
-        │
-        ▼
-[Step 7 — OCR]
-        │
-        ▼
-[Step 8 — Text post-processing]
-        │
-        ▼
-[Step 9 — Text review]
-        │
-        ▼
-[Step 10 — Package / Build zip]
-```
+1. `POST /api/projects/{id}/build-package`.
+2. If every proof-range page is `text_review.clean`, the job runs
+   immediately.
+3. Otherwise the job lands in `awaiting_review` state — the project
+   banner shows "N pages awaiting review", with a click-through to the
+   next unreviewed page.
+4. As the user marks each page reviewed, the runner re-checks the
+   gate. When the last page is clean the job auto-resumes.
 
 ---
 
 ## Scope
 
-**In scope:** all 10 pipeline steps, PageWorkbench with live GPU preview,
-visual page tagger with per-page config, split editor, illustration extraction,
-PGDP package assembly.
+**In scope:** the full per-page stage DAG (22 stages from `ingest_source`
+through `text_review` + the `blank_proof_synth` and
+`extract_illustrations` branches), PageWorkbench with stage-chain rail
+and per-stage artifact viewer, visual page tagger with per-page config,
+split-as-sibling-pages editor, illustration extraction, PGDP package
+assembly with the text-review gate.
 
 **Out of scope:** PGDP project submission (still a manual step on
 distributedproofreaders.org), DocTR model training (lives in `pd-ocr-trainer`).

@@ -8,6 +8,8 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { api, getAuthToken, setAuthToken } from "./api/client";
+import { ProfileDropdown } from "./components/ProfileDropdown";
+import { ServerInfoFooter } from "./components/ServerInfoFooter";
 import { JobsPage } from "./pages/JobsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ProjectListPage } from "./pages/ProjectListPage";
@@ -44,7 +46,10 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/" element={<ProjectListPage />} />
           <Route path="/jobs" element={<JobsPage />} />
-          <Route path="/projects/:projectId" element={<ProjectConfigurePage />} />
+          <Route
+            path="/projects/:projectId"
+            element={<ProjectConfigurePage />}
+          />
           <Route
             path="/projects/:projectId/pages/:idx0"
             element={<PageWorkbenchPage />}
@@ -60,6 +65,8 @@ export default function App() {
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </main>
+
+      <ServerInfoFooter />
     </div>
   );
 }
@@ -123,7 +130,9 @@ function AuthBadge() {
   if (env.AUTH_MODE === "none") return null;
   if (env.AUTH_MODE === "apikey") {
     if (!me.data) {
-      return <span className="ml-auto text-xs text-slate-400">apikey mode</span>;
+      return (
+        <span className="ml-auto text-xs text-slate-400">apikey mode</span>
+      );
     }
     return (
       <span className="ml-auto flex items-center gap-2 text-xs text-slate-600">
@@ -136,41 +145,25 @@ function AuthBadge() {
   if (env.AUTH_MODE === "jwt") {
     if (!token) {
       return (
-        <Link to="/login" className="ml-auto text-xs text-slate-600 hover:underline">
+        <Link
+          to="/login"
+          className="ml-auto text-xs text-slate-600 hover:underline"
+        >
           Sign in
         </Link>
       );
     }
-    const sub = decodeJwtSub(token) ?? "user";
     return (
-      <span className="ml-auto flex items-center gap-2 text-xs text-slate-600">
-        <span className="rounded bg-slate-100 px-2 py-0.5 font-mono">{sub}</span>
-        <button
-          onClick={() => {
-            setAuthToken(null);
-            setToken(null);
-            queryClient.clear();
-            navigate("/login");
-          }}
-          className="text-slate-500 hover:underline"
-        >
-          Sign out
-        </button>
-      </span>
+      <ProfileDropdown
+        token={token}
+        onSignOut={() => {
+          setAuthToken(null);
+          setToken(null);
+          queryClient.clear();
+          navigate("/login");
+        }}
+      />
     );
   }
   return null;
-}
-
-function decodeJwtSub(token: string): string | null {
-  try {
-    const part = token.split(".")[1];
-    if (!part) return null;
-    const padded = part.replace(/-/g, "+").replace(/_/g, "/");
-    const json = atob(padded);
-    const claims = JSON.parse(json);
-    return typeof claims.sub === "string" ? claims.sub : null;
-  } catch {
-    return null;
-  }
 }

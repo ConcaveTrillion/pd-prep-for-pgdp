@@ -12,6 +12,7 @@ StorageBackend = Literal["filesystem", "s3"]
 DatabaseKind = Literal["sqlite", "postgres"]
 AuthMode = Literal["none", "apikey", "jwt"]
 GpuBackend = Literal["local", "cpu", "mps", "modal", "shared_container"]
+LogFormat = Literal["plain", "json"]
 
 
 class Settings(BaseSettings):
@@ -63,8 +64,32 @@ class Settings(BaseSettings):
     dispatch_interval_seconds: int = 0
     """0 = immediate (local/self-hosted). 300 = managed-mode batch flush."""
 
+    # ── Thumbnail generation (Step 2) ────────────────────────────────────────
+    thumbnail_workers: int | None = None
+    """Worker-process count for Step-2 thumbnail generation.
+
+    JPEG decode/resize/encode is CPU-bound and trivially parallel, so the
+    default (None) lets `core.ingest._resolve_thumbnail_workers` fall back
+    to `os.cpu_count()`. Set `PGDP_THUMBNAIL_WORKERS=1` to disable the
+    `ProcessPoolExecutor` and run thumbnails on a single worker thread —
+    matches the test-suite default and avoids the fork overhead on tiny
+    inputs."""
+
     # ── Mode flag (for shared GPU worker container) ──────────────────────────
     mode: Literal["full", "gpu_worker_only"] = "full"
+
+    # ── Logging (roadmap §18) ────────────────────────────────────────────────
+    log_format: LogFormat = "plain"
+    """`plain` keeps the human-readable default. `json` switches the root
+    logger to one-JSON-object-per-line with request-id correlation —
+    intended for managed/multi-tenant deployments shipping logs to a
+    structured backend (CloudWatch, Loki, Datadog, etc.)."""
+
+    request_id_header: str = "X-Request-ID"
+    """HTTP header used by RequestIdMiddleware to read/echo the
+    correlation id. Standard names in the wild are `X-Request-ID`
+    (most ALBs/Sentry) and `X-Correlation-ID`; allow override for sites
+    that already standardised."""
 
     @property
     def derived_database_url(self) -> str:

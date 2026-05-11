@@ -2,11 +2,21 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
-import type {
-  CreateProjectRequest,
-  CreateProjectResponse,
-  Project,
-} from "../api/types";
+import type { components } from "../api/types.gen";
+import { FormErrorBanner } from "../components/FormErrorBanner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogTitle,
+} from "../components/ui/AlertDialog";
+import { Dialog, DialogContent, DialogTitle } from "../components/ui/Dialog";
+
+type CreateProjectRequest = components["schemas"]["CreateProjectRequest"];
+type CreateProjectResponse = components["schemas"]["CreateProjectResponse"];
+type Project = components["schemas"]["Project"];
 
 export function ProjectListPage() {
   const [showCreate, setShowCreate] = useState(false);
@@ -48,22 +58,42 @@ export function ProjectListPage() {
         </ul>
       )}
 
-      {showCreate && <CreateProjectModal onClose={() => setShowCreate(false)} />}
+      <CreateProjectModal
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+      />
     </section>
   );
 }
 
-type Step =
-  | { kind: "form" }
-  | { kind: "uploading"; pct: number }
-  | { kind: "error"; message: string };
+type Step = { kind: "form" } | { kind: "uploading"; pct: number };
 
-function CreateProjectModal({ onClose }: { onClose: () => void }) {
+function CreateProjectModal({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [step, setStep] = useState<Step>({ kind: "form" });
+
+  // Radix Dialog handles the a11y previously wired by hand:
+  //   - role="dialog" with aria-labelledby auto-wired to the DialogTitle
+  //     (Radix v1.1+ deliberately omits aria-modal because the focus
+  //     trap is sufficient under the WAI-ARIA modal pattern)
+  //   - Escape closes (no manual keydown listener)
+  //   - Focus trap with initial focus on the first focusable child
+  //   - Body scroll-lock while open (data-scroll-locked + injected styles
+  //     via react-remove-scroll-bar)
+  //   - Click-outside on the overlay closes
+  // The cba526e a11y intent — discoverable modal + scroll-lock + Escape +
+  // initial focus — still holds; the test contract was updated to match
+  // Radix's mechanism (data-scroll-locked attribute instead of inline
+  // body.style.overflow).
 
   const createMut = useMutation({
     mutationFn: async () => {
@@ -98,21 +128,22 @@ function CreateProjectModal({ onClose }: { onClose: () => void }) {
       // watch unzip then thumbnails progress side-by-side.
       navigate(`/jobs?project_id=${encodeURIComponent(project.id)}`);
     },
-    onError: (e) => {
-      setStep({ kind: "error", message: (e as Error).message });
+    onError: () => {
+      // Surface via the global sonner toast (FormErrorBanner below);
+      // drop back to the form so the user can correct + retry.
+      setStep({ kind: "form" });
     },
   });
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40"
-      onClick={onClose}
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <div
-        className="w-full max-w-md space-y-4 rounded-lg bg-white p-6 shadow-lg"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-lg font-semibold">New project</h2>
+      <DialogContent>
+        <DialogTitle className="text-lg font-semibold">New project</DialogTitle>
 
         {step.kind === "form" && (
           <>
@@ -158,13 +189,12 @@ function CreateProjectModal({ onClose }: { onClose: () => void }) {
           <ProgressLine label={`Uploading… ${step.pct}%`} pct={step.pct} />
         )}
 
-        {step.kind === "error" && (
-          <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
-            {step.message}
-          </div>
-        )}
-      </div>
-    </div>
+        <FormErrorBanner
+          prefix="create project failed"
+          error={createMut.isError ? (createMut.error as Error) : null}
+        />
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -227,37 +257,43 @@ function ProjectListRow({ project }: { project: Project }) {
           </div>
         </Link>
 
-        {confirming ? (
-          <div className="flex items-center gap-1 text-xs">
-            <span className="text-slate-700">Delete project?</span>
-            <button
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            setConfirming(true);
+          }}
+          className="ml-3 rounded px-2 py-1 text-slate-400 hover:bg-slate-100 hover:text-rose-600"
+          aria-label="Delete project"
+          title="Delete project"
+        >
+          ⋯
+        </button>
+      </div>
+
+      <AlertDialog open={confirming} onOpenChange={setConfirming}>
+        <AlertDialogContent>
+          <AlertDialogTitle className="text-lg font-semibold">
+            Delete project?
+          </AlertDialogTitle>
+          <AlertDialogDescription className="text-sm text-slate-600">
+            This will permanently remove{" "}
+            <span className="font-medium text-slate-900">{project.name}</span>{" "}
+            and its uploaded scans. This action cannot be undone.
+          </AlertDialogDescription>
+          <div className="flex justify-end gap-2 pt-2">
+            <AlertDialogCancel className="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
               onClick={() => del.mutate()}
               disabled={del.isPending}
-              className="rounded bg-rose-600 px-2 py-0.5 text-white hover:bg-rose-700 disabled:opacity-50"
+              className="rounded bg-rose-600 px-3 py-1.5 text-sm text-white hover:bg-rose-700 disabled:opacity-50"
             >
-              Yes
-            </button>
-            <button
-              onClick={() => setConfirming(false)}
-              className="rounded border border-slate-300 px-2 py-0.5 hover:bg-slate-100"
-            >
-              Cancel
-            </button>
+              Delete
+            </AlertDialogAction>
           </div>
-        ) : (
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              setConfirming(true);
-            }}
-            className="ml-3 rounded px-2 py-1 text-slate-400 hover:bg-slate-100 hover:text-rose-600"
-            aria-label="Delete project"
-            title="Delete project"
-          >
-            ⋯
-          </button>
-        )}
-      </div>
+        </AlertDialogContent>
+      </AlertDialog>
     </li>
   );
 }

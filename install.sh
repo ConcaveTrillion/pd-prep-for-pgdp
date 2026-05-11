@@ -5,6 +5,13 @@ set -e
 #
 # Usage:
 #   curl -sSL https://raw.githubusercontent.com/ConcaveTrillion/pd-prep-for-pgdp/main/install.sh | sh
+#
+# This script downloads the prebuilt wheel attached to the latest GitHub
+# Release and runs `uv tool install` against it. The wheel ships with the
+# React SPA already bundled, so end users do NOT need Node, npm, or a
+# JavaScript toolchain — only `uv` (which this script will install for you).
+
+REPO="ConcaveTrillion/pd-prep-for-pgdp"
 
 # 1. Install uv if not already present
 if ! command -v uv >/dev/null 2>&1; then
@@ -34,23 +41,68 @@ else
 fi
 
 # 3. Resolve latest tag
-REPO="ConcaveTrillion/pd-prep-for-pgdp"
 LATEST_TAG=$(curl -sSf "https://api.github.com/repos/${REPO}/tags" 2>/dev/null \
     | grep '"name"' | head -1 | sed 's/.*"name": "\([^"]*\)".*/\1/') || true
 
-if [ -n "$LATEST_TAG" ]; then
-    INSTALL_REF="git+https://github.com/${REPO}@${LATEST_TAG}"
-    echo "Installing pgdp-prep ${LATEST_TAG}..."
-else
-    INSTALL_REF="git+https://github.com/${REPO}"
-    echo "Installing pgdp-prep (latest commit — could not resolve tag)..."
+if [ -z "$LATEST_TAG" ]; then
+    echo "Error: could not resolve the latest release tag from GitHub." >&2
+    echo "       https://api.github.com/repos/${REPO}/tags returned nothing usable." >&2
+    exit 1
 fi
 
-# 4. uv tool install
+echo "Installing pgdp-prep ${LATEST_TAG}..."
+
+# 4. Find the wheel asset attached to the GitHub Release for this tag.
+#    We don't know the exact wheel filename ahead of time (hatch-vcs derives
+#    it from the tag, e.g. pd_prep_for_pgdp-0.2.0-py3-none-any.whl), so we
+#    glob for any `*.whl` asset on the release.
+RELEASE_JSON=$(curl -sSf \
+    -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/${REPO}/releases/tags/${LATEST_TAG}" 2>/dev/null) || true
+
+# Pull the first .whl browser_download_url out of the release JSON. Stays
+# POSIX-shell friendly (no jq) — the Releases API returns one URL per line
+# in the assets array, and we just grep for the wheel.
+WHEEL_URL=$(printf '%s\n' "$RELEASE_JSON" \
+    | grep '"browser_download_url"' \
+    | grep -E '\.whl"' \
+    | head -1 \
+    | sed 's/.*"browser_download_url": *"\([^"]*\)".*/\1/')
+
+if [ -z "$WHEEL_URL" ]; then
+    # Hard-fail rather than fall back to `git+...`. The git+ path requires
+    # Node + npm on the user's machine to build the React SPA at install
+    # time, which is exactly the requirement this script is designed to
+    # avoid. Falling back silently would surface a confusing "vite: command
+    # not found" failure from inside `uv build`. Better to tell the user
+    # plainly what went wrong.
+    echo "Error: no .whl asset attached to release ${LATEST_TAG}." >&2
+    echo "       Expected a wheel uploaded by .github/workflows/release.yml." >&2
+    echo "       Check https://github.com/${REPO}/releases/tag/${LATEST_TAG}" >&2
+    echo "       — the release workflow may have failed, or this is an" >&2
+    echo "       older tag from before wheel publishing was wired up." >&2
+    exit 1
+fi
+
+# 5. Download the wheel to a temp dir and install it as a uv tool.
+#    Using a local path lets us attach extras via `<path>[cuda]`, which uv
+#    accepts cleanly. (PEP 508 direct references like
+#    `pd_prep_for_pgdp[cuda] @ <url>` also work, but the local-path form
+#    is simpler to reason about and gives us a real file to reference in
+#    error messages.)
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT INT TERM
+
+WHEEL_FILE="${TMPDIR}/$(basename "$WHEEL_URL")"
+echo "Downloading ${WHEEL_URL}..."
+curl -fsSL -o "$WHEEL_FILE" "$WHEEL_URL"
+
+INSTALL_TARGET="${WHEEL_FILE}${EXTRAS}"
+
 if [ -n "$EXTRA_INDEX" ]; then
-    uv tool install --reinstall "${INSTALL_REF}${EXTRAS}" --extra-index-url "$EXTRA_INDEX"
+    uv tool install --reinstall "$INSTALL_TARGET" --extra-index-url "$EXTRA_INDEX"
 else
-    uv tool install --reinstall "${INSTALL_REF}${EXTRAS}"
+    uv tool install --reinstall "$INSTALL_TARGET"
 fi
 
 echo ""

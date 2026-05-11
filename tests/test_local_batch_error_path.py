@@ -38,7 +38,12 @@ class _MixedBackend(GPUBackend):
     async def run_ocr(self, req):  # pragma: no cover - unused
         raise NotImplementedError
 
-    async def run_batch(self, items: list[BatchJobItem]) -> list[BatchJobResult]:
+    async def run_batch(
+        self,
+        items: list[BatchJobItem],
+        *,
+        progress_cb=None,
+    ) -> list[BatchJobResult]:
         out: list[BatchJobResult] = []
         for item in items:
             if item.idx0 == 0:

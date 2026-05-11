@@ -1,6 +1,6 @@
 """Step 4 — proofing-image pipeline (CPU path).
 
-Mirrors the GPU sub-step sequence in spec 02 §4c–4o using
+Mirrors the GPU sub-step sequence in spec 02 §4c-4o using
 `pd_book_tools.image_processing.cv2_processing` primitives. The GPU
 (`adapters/gpu/local.py`) overrides this with its cupy_processing variant
 later; the orchestration shape is identical.
@@ -153,7 +153,6 @@ def process_page_cpu(
     # 4m — re-invert + rescale ─────────────────────────────────────────────
     img_rescaled = rescale_image(
         invert_image(img_deskewed),
-        aspect_ratio=cfg.page_h_w_ratio,
         target_short_side=1000,
     )
 

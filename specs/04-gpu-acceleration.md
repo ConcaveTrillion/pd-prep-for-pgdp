@@ -2,25 +2,38 @@
 
 ## Summary
 
-Two pipeline stages are GPU-accelerated:
-
-1. **Step 4 image processing** — grayscale, threshold, invert, edge-finding,
-   deskew, morph, rescale, canvas placement (CuPy)
-2. **Step 7 OCR** — DocTR uses PyTorch CUDA when available
+Stage execution is **per-stage device-dispatched** through the registry
+`STAGE_IMPL[stage_id][device]` (canonical model in
+[`docs/specs/pipeline-task-model.md`](../docs/specs/pipeline-task-model.md)
+Q5). Image-processing stages (`grayscale`, `threshold`, `find_content_edges`,
+`auto_deskew`, `morph_fill`, `rescale`, `canvas_map`) ship with CPU implementations
+backed by `cv2` / NumPy and have CUDA implementations backed by `cupy`. The
+`ocr` stage runs DocTR through PyTorch and auto-picks `cuda:0` / `mps` / `cpu`
+inside the call.
 
 GPU is **optional everywhere**. The pipeline runs end-to-end on CPU; the user
 just waits longer. There is no feature that requires a GPU.
 
-The `GPUBackend` interface (selected at startup) decides where GPU work
-actually executes:
+The where-does-compute-run question is decided in two layers:
 
-| Backend | Where compute runs | Selected by |
+1. **Process-level GPU adapter.** A small adapter (one of `local`,
+   `cpu`, `modal`, `shared_container`) is selected at startup. Local and
+   CPU adapters run stages in-process; modal and shared_container
+   adapters dispatch each stage to a remote worker.
+2. **Per-stage device dispatch.** Within an in-process run, the
+   framework picks `device ∈ {"cpu", "cuda"}` per stage based on
+   availability, the upstream artifact's current device, and
+   `Settings.gpu_backend`. The chosen entry of
+   `STAGE_IMPL[stage_id][device]` is invoked. CPU-only stages have only
+   the `"cpu"` key in the registry; mixed-device stages register both.
+
+| Adapter | Where compute runs | Selected by |
 |---|---|---|
-| `local` | Same process, in-place CuPy + CUDA PyTorch | `PGDP_GPU_BACKEND=local` (auto if CUDA detected at startup) |
-| `mps` | Same process, CPU image processing + MPS PyTorch (DocTR only) | `PGDP_GPU_BACKEND=mps` (auto on macOS arm64) |
-| `cpu` | Same process, NumPy/cv2 + CPU PyTorch | `PGDP_GPU_BACKEND=cpu` (auto when no CUDA, no MPS) |
-| `modal` | Modal serverless function | `PGDP_GPU_BACKEND=modal` |
-| `shared_container` | A long-running GPU ECS task shared across tenants | `PGDP_GPU_BACKEND=shared_container` |
+| `local` | Same process, registry-dispatched per stage; CUDA when available, CPU fallback per-stage | `PGDP_GPU_BACKEND=local` (auto if CUDA detected at startup) |
+| `mps` | Same process, registry-dispatched (CPU image stages); DocTR via PyTorch MPS | `PGDP_GPU_BACKEND=mps` (auto on macOS arm64) |
+| `cpu` | Same process, all stages dispatched to `STAGE_IMPL[...]['cpu']` | `PGDP_GPU_BACKEND=cpu` (auto when no CUDA, no MPS) |
+| `modal` | Modal serverless function — receives `(stage_id, page_id, inputs)` and runs the registry inside the function body | `PGDP_GPU_BACKEND=modal` |
+| `shared_container` | A long-running GPU ECS task shared across tenants — same as Modal but over HTTP to a long-running `pgdp-prep --mode gpu_worker_only` | `PGDP_GPU_BACKEND=shared_container` |
 
 The PyTorch wheel that determines which of `local`/`mps`/`cpu` is available is
 chosen **at install time** by `install.sh` (spec 09): NVIDIA CUDA detected
@@ -29,10 +42,13 @@ and nvImageCodec); macOS arm64 → default wheel (MPS already supported); else
 CPU wheel only. `PGDP_GPU_BACKEND` defaults to whichever is detected at
 process startup, but can be overridden.
 
-All backends implement the same protocol and call the same `core/pipeline/*`
-functions. The Modal worker imports `core.pipeline.run_page_pipeline` directly;
-the shared container is just a stripped-down `pgdp-prep` running with
-`PGDP_MODE=gpu_worker_only`.
+> **Migration note.** The pre-2026-05-07 model had a `GPUBackend` class
+> hierarchy (`LocalBackend` / `CpuBackend` / `ModalBackend` /
+> `SharedContainerBackend`) with `run_batch` / `process_page` / `run_ocr`
+> methods. M2 introduces the `STAGE_IMPL` registry alongside those classes;
+> M5 routes every existing call site through the registry; M6 deletes the
+> classes outright in favor of a small `pick_device()` helper plus the
+> registry. See pipeline-task-model.md §Stage implementation registry (Q5).
 
 ---
 
@@ -52,34 +68,59 @@ At startup, the bootstrap module picks `local` (if CUDA detected) or `cpu`
 
 ---
 
-## Backend 1 — `local` (in-process CuPy)
+## Adapter 1 — `local` (in-process registry dispatch)
 
 Used by local installs with a CUDA GPU and self-hosted deployments on a
 single GPU box.
 
-The pipeline functions accept either a NumPy or CuPy array and dispatch
-accordingly via `isinstance(img, cp.ndarray)`. The CPU fallback path is
-selected by importing the cv2 functions instead of the cupy functions:
+The framework dispatches each stage through `STAGE_IMPL[stage_id][device]`,
+where each stage's CPU implementation is a thin wrapper around `cv2` /
+NumPy primitives and each CUDA implementation is a wrapper around
+`pd_book_tools.image_processing.cupy_processing`:
 
 ```python
-# core/pipeline/_dispatch.py
-if gpu_available():
-    from pd_book_tools.image_processing.cupy_processing import (
-        np_uint8_float_colorToGray   as _colorToGray,
-        np_uint8_find_edges          as _find_edges,
-        np_uint8_auto_deskew         as _auto_deskew,
-        np_uint8_float_binary_thresh as _threshold,
-    )
-else:
-    from pd_book_tools.image_processing.cv2_processing import (
-        cv2_convert_to_grayscale as _colorToGray,
-        find_edges               as _find_edges,
-        auto_deskew              as _auto_deskew,
-        otsu_binary_thresh       as _threshold,
-    )
+# Conceptual snippet — see core/pipeline/registry.py for the real one.
+STAGE_IMPL = {
+    "grayscale": {
+        "cpu":  cpu_impls.grayscale_cpu,    # cv2_convert_to_grayscale → numpy
+        "cuda": gpu_impls.grayscale_cuda,   # cupy_processing.np_uint8_float_colorToGray → cupy
+    },
+    "threshold": {
+        "cpu":  cpu_impls.threshold_cpu,
+        "cuda": gpu_impls.threshold_cuda,
+    },
+    "auto_deskew": {
+        "cpu":  cpu_impls.auto_deskew_cpu,
+        "cuda": gpu_impls.auto_deskew_cuda,
+    },
+    "find_content_edges": {
+        "cpu":  cpu_impls.find_content_edges_cpu,
+        "cuda": gpu_impls.find_content_edges_cuda,
+    },
+    "ocr": {
+        # No "cuda" key: DocTR auto-picks cuda:0 inside the cpu impl
+        # when torch.cuda.is_available(). The stage is device-agnostic.
+        "cpu":  cpu_impls.ocr_cpu,
+    },
+    # ... (one entry per stage; see canonical spec)
+}
 ```
 
-This is the only place the GPU-vs-CPU split happens in pipeline code.
+The framework picks the device per-call by:
+
+1. Checking `Settings.gpu_backend` for the user's preference.
+2. Checking whether `STAGE_IMPL[stage_id]` has a `"cuda"` entry.
+3. Checking that CuPy is importable and a CUDA device is visible.
+4. Checking whether the upstream artifact is already on the preferred
+   device (avoid round-trip).
+
+If the preferred entry isn't available (e.g. user wants CUDA but the
+stage has only `"cpu"`), the framework falls through to `"cpu"` and
+auto-bridges any in-memory upstream cupy ndarrays to numpy via
+`cupy.asnumpy` (logged as a debug line for hot-path optimisation).
+This is the **only** place the GPU-vs-CPU split happens in pipeline
+code; pre-existing `core/pipeline/_dispatch.py` import-table tricks
+are removed in M5.
 
 ### Existing pd-book-tools GPU functions
 
@@ -242,12 +283,15 @@ understands the timeline.
 
 ---
 
-## Backend 4 — `modal` (serverless)
+## Adapter 4 — `modal` (serverless)
 
 Used in **managed mode** (default) and as an opt-in in local/self-hosted for
 users without a GPU.
 
-### Modal function definitions
+The Modal-side function bodies dispatch through the same `STAGE_IMPL`
+registry as the in-process adapters. The Modal worker pulls inputs from
+S3 (or accepts them inline for small artifacts), runs the stage, queues
+the deferred write, and returns the output's storage key:
 
 ```python
 # adapters/gpu/modal_backend.py
@@ -271,34 +315,30 @@ model_volume = modal.Volume.from_name("pd-ml-models", create_if_missing=False)
     retries=1,
     container_idle_timeout=300,    # stay warm 5 min after last call
 )
-def process_page_remote(req: dict) -> dict:
-    from pd_prep_for_pgdp.core.pipeline import run_page_pipeline
-    from pd_prep_for_pgdp.api.gpu.schemas import ProcessPageRequest
-    return run_page_pipeline(ProcessPageRequest(**req)).model_dump()
-
-@app.function(gpu="T4", image=image, volumes={"/opt/pd-ml-models": model_volume},
-              timeout=600, container_idle_timeout=300)
-def run_ocr_remote(req: dict) -> dict:
-    from pd_prep_for_pgdp.core.ocr import run_ocr_page
-    from pd_prep_for_pgdp.api.gpu.schemas import OcrPageRequest
-    return run_ocr_page(OcrPageRequest(**req)).model_dump()
+def run_stage_remote(req: dict) -> dict:
+    """Run one DAG stage on one page. The registry dispatches to the
+    CUDA implementation when available, CPU otherwise."""
+    from pd_prep_for_pgdp.core.pipeline.runner import run_stage
+    from pd_prep_for_pgdp.api.gpu.schemas import RunStageRequest
+    return run_stage(RunStageRequest(**req)).model_dump()
 
 @app.function(gpu="T4", image=image, volumes={"/opt/pd-ml-models": model_volume},
               timeout=1800, container_idle_timeout=600)
 def run_batch_remote(items: list[dict]) -> list[dict]:
-    """Batch entry point — all queued work for one dispatcher flush window.
-
-    The 5-min flush window in managed mode collects pages here, then this
-    single Modal invocation processes them with one cold start instead of
-    paying it per page.
-    """
-    from pd_prep_for_pgdp.core.pipeline import run_batch_pipeline
-    return [r.model_dump() for r in run_batch_pipeline(items)]
+    """Batch entry point — all queued (stage_id, page_id) pairs for one
+    dispatcher flush window. The 5-min flush window in managed mode
+    collects pages here, then this single Modal invocation processes
+    them with one cold start instead of paying it per page."""
+    from pd_prep_for_pgdp.core.pipeline.runner import run_stage_batch
+    return [r.model_dump() for r in run_stage_batch(items)]
 ```
 
-The Modal function imports `core.pipeline` directly. Modal's image build mounts
-the same Python package, so the worker runs the **identical pipeline code** as
-the local install — there is no parallel implementation.
+The Modal function imports `core.pipeline.runner` directly. Modal's image
+build mounts the same Python package, so the worker runs the **identical
+registry code** as the local adapter — there is no parallel implementation.
+
+> The pre-2026-05-07 Modal entrypoints (`process_page_remote` /
+> `run_ocr_remote`) are kept as thin shims through M5 and removed in M6.
 
 ### `ModalGPUBackend`
 
@@ -306,21 +346,16 @@ the local install — there is no parallel implementation.
 # adapters/gpu/modal_backend.py
 class ModalGPUBackend:
     def __init__(self):
-        self._process_page = modal.Function.lookup("pgdp-prep-gpu", "process_page_remote")
-        self._run_ocr      = modal.Function.lookup("pgdp-prep-gpu", "run_ocr_remote")
-        self._run_batch    = modal.Function.lookup("pgdp-prep-gpu", "run_batch_remote")
+        self._run_stage = modal.Function.lookup("pgdp-prep-gpu", "run_stage_remote")
+        self._run_batch = modal.Function.lookup("pgdp-prep-gpu", "run_batch_remote")
 
-    async def process_page(self, req: ProcessPageRequest) -> ProcessPageResponse:
-        result = await self._process_page.remote.aio(req.model_dump())
-        return ProcessPageResponse(**result)
+    async def run_stage(self, req: RunStageRequest) -> RunStageResponse:
+        result = await self._run_stage.remote.aio(req.model_dump())
+        return RunStageResponse(**result)
 
-    async def run_ocr(self, req: OcrPageRequest) -> OcrPageResponse:
-        result = await self._run_ocr.remote.aio(req.model_dump())
-        return OcrPageResponse(**result)
-
-    async def run_batch(self, items: list[BatchJobItem]) -> list[BatchJobResult]:
+    async def run_batch(self, items: list[StageBatchItem]) -> list[StageBatchResult]:
         results = await self._run_batch.remote.aio([i.model_dump() for i in items])
-        return [BatchJobResult(**r) for r in results]
+        return [StageBatchResult(**r) for r in results]
 ```
 
 ### Model weights on Modal Volume
@@ -349,11 +384,11 @@ UI shows "GPU warming up…" with exponential back-off polling.
 
 ---
 
-## Backend 5 — `shared_container`
+## Adapter 5 — `shared_container`
 
 For a managed deployment with sustained traffic that justifies a long-running
 GPU. A single ECS EC2 task on `g4dn.xlarge` runs `pgdp-prep` with
-`PGDP_MODE=gpu_worker_only` — no UI, no project DB access, just `/api/gpu/*`
+`PGDP_MODE=gpu_worker_only` — no UI, no project DB access, just stage-runner
 endpoints. The frontend Fargate task dispatches via HTTP:
 
 ```python
@@ -366,15 +401,15 @@ class SharedContainerGPUBackend:
             timeout=300.0,
         )
 
-    async def process_page(self, req: ProcessPageRequest) -> ProcessPageResponse:
-        r = await self._client.post("/api/gpu/process-page", json=req.model_dump())
+    async def run_stage(self, req: RunStageRequest) -> RunStageResponse:
+        r = await self._client.post("/api/gpu/run-stage", json=req.model_dump())
         r.raise_for_status()
-        return ProcessPageResponse(**r.json())
+        return RunStageResponse(**r.json())
 
-    async def run_batch(self, items: list[BatchJobItem]) -> list[BatchJobResult]:
+    async def run_batch(self, items: list[StageBatchItem]) -> list[StageBatchResult]:
         r = await self._client.post("/api/gpu/_internal/batch",
                                      json=[i.model_dump() for i in items])
-        return [BatchJobResult(**x) for x in r.json()]
+        return [StageBatchResult(**x) for x in r.json()]
 ```
 
 Tenants share the GPU but have isolated work queues; per-tenant API keys carry
@@ -405,18 +440,31 @@ queued pages.
 
 ---
 
-## Memory management (local backend)
+## Memory management (local adapter)
 
-CuPy arrays stay on GPU for the entire Step 4 sub-pipeline (4f → 4n) for one
-page. CPU array is fetched once at 4c and the final result returned to CPU at
-4o. No repeated PCIe round trips.
+The runner's memory-resident execution model (canonical spec §Memory-resident
+execution model) holds each stage's output as an in-memory artifact until its
+last DAG-downstream consumer has been called, then drops the reference. With
+the device-aware artifact model (Q10), CuPy arrays stay on GPU across CUDA
+stages and only round-trip to CPU at stage boundaries that need it (a
+non-CUDA stage downstream, or the persistence write).
 
-Rough budget per page at 3000×5000 px:
+Hidden device round-trips (e.g. a CPU-only stage sandwiched between two CUDA
+stages, forcing two PCIe transfers) are surfaced as debug-log lines so they
+can be optimised by reordering or registering a CUDA implementation.
+
+Persistence does not block compute: each stage's output is queued to the
+**bounded deferred-write executor** (canonical spec Q8 — defaults: pool size
+`min(cpu_count(), 4)`, queue cap `4× pool`). When the queue is full, the DAG
+runner blocks on submission — back-pressure prevents unbounded RAM growth on
+slow disks. Configurable via `PGDP_STAGE_WRITE_POOL_SIZE` and
+`PGDP_STAGE_WRITE_QUEUE_CAP`.
+
+Rough RAM budget per page at 3000×5000 px:
 
 - uint8 image: ~15 MB
 - float32 intermediate: ~60 MB
-- Two morph copies: ~120 MB
-- Peak per page: ~200 MB
+- Working set (refcount-driven): ~2–3 active artifacts at once
 
 A 4 GB GPU comfortably handles one page at a time; 16 GB (T4) handles ~8 pages
 in a DocTR batch.
@@ -425,16 +473,16 @@ in a DocTR batch.
 
 ## Performance targets
 
-| Step | CPU (cv2) | MPS (Apple Silicon) | Local CUDA | Modal warm | Modal cold |
+| Stage | CPU (cv2) | MPS (Apple Silicon) | Local CUDA | Modal warm | Modal cold |
 |---|---|---|---|---|---|
-| Grayscale | ~1 s | ~1 s (CPU) | <1 s | ~1 s | (one cold start per batch) |
-| Threshold | ~0.1 s | ~0.1 s (CPU) | <0.05 s | ~0.05 s | |
-| find_edges | ~0.05 s | ~0.05 s (CPU) | <0.01 s | <0.01 s | |
-| auto_deskew | ~0.7 s | ~0.7 s (CPU) | <0.15 s | <0.2 s | |
-| morph_fill | ~0.3 s | ~0.3 s (CPU) | <0.05 s | <0.05 s | |
-| **Step 4 total** | **~3 s** | **~3 s** | **~2 s** | **~2 s** | **+ ~10 s once** |
-| Step 7 OCR (per page) | ~5 s | ~2 s | ~1 s | ~1 s | |
-| **Step 7 OCR (8-page batch)** | ~40 s | ~12 s | ~3 s | ~3 s | |
+| `grayscale` | ~1 s | ~1 s (CPU) | <1 s | ~1 s | (one cold start per batch) |
+| `threshold` | ~0.1 s | ~0.1 s (CPU) | <0.05 s | ~0.05 s | |
+| `find_content_edges` | ~0.05 s | ~0.05 s (CPU) | <0.01 s | <0.01 s | |
+| `auto_deskew` | ~0.7 s | ~0.7 s (CPU) | <0.15 s | <0.2 s | |
+| `morph_fill` | ~0.3 s | ~0.3 s (CPU) | <0.05 s | <0.05 s | |
+| **Whole proofing chain** (decode_source → canvas_map) | **~3 s** | **~3 s** | **~2 s** | **~2 s** | **+ ~10 s once** |
+| `ocr` (per page) | ~5 s | ~2 s | ~1 s | ~1 s | |
+| **`ocr` (8-page batch)** | ~40 s | ~12 s | ~3 s | ~3 s | |
 
 For managed mode, the cold-start tax appears once per dispatcher flush. A
 400-page book at 5-min flush cadence is one cold start total (the whole
@@ -446,28 +494,29 @@ batch fits in one `run_batch_remote` call at the configured timeout).
 
 ```
 src/pd_prep_for_pgdp/
-├── core/                          ← mode-agnostic; same code on every backend
+├── core/                          ← mode-agnostic; same code on every adapter
 │   ├── pipeline/
-│   │   ├── step4_proofing.py      ← run_page_pipeline (per-page Step 4)
-│   │   ├── step6_ocr_crop.py
-│   │   ├── step7_ocr.py
-│   │   ├── step8_postprocess.py
-│   │   └── step10_package.py
-│   ├── ocr/
-│   │   ├── doctr.py
-│   │   └── tesseract.py
+│   │   ├── dag.py                 ← STAGE_DAG, descendants(), STAGE_VERSIONS
+│   │   ├── registry.py            ← STAGE_IMPL[stage_id][device]
+│   │   ├── runner.py              ← in-memory DAG executor + bounded write pool
+│   │   ├── reindex.py             ← dual-write reconciler (Q1-followup)
+│   │   ├── stages_cpu/            ← CPU implementations
+│   │   ├── stages_cuda/           ← CUDA implementations
+│   │   └── packaging.py           ← project.build_package
+│   ├── ocr.py
 │   └── queue/
 │       └── single_executor.py     ← in-process priority queue (local/self-hosted)
 │
 └── adapters/gpu/
-    ├── local.py                   ← in-process CuPy + CUDA PyTorch
-    ├── mps.py                     ← in-process cv2 + MPS PyTorch (Apple Silicon)
-    ├── cpu.py                     ← in-process NumPy/cv2 + CPU PyTorch
+    ├── local.py                   ← in-process; routes through STAGE_IMPL
+    ├── mps.py                     ← Apple Silicon DocTR via PyTorch MPS
+    ├── cpu.py                     ← in-process; STAGE_IMPL[..., 'cpu'] only
     ├── modal_backend.py           ← function definitions + ModalGPUBackend client
     └── shared_container.py        ← HTTP client to GPU worker
 ```
 
-Adding `find_edges_gpu` and `auto_deskew_gpu` to pd-book-tools:
+CUDA primitives that still need to land in pd-book-tools (image-processing
+fast paths):
 
 ```
 pd-book-tools/pd_book_tools/image_processing/cupy_processing/
