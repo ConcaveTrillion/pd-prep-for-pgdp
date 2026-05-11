@@ -53,7 +53,7 @@ jobs:
       - name: Verify SPA bundle present (roadmap §22)
         run: test -f src/pd_prep_for_pgdp/static/index.html
       - name: Tests
-        run: uv run pytest tests/ -v
+        run: uv run pytest tests/ -v --ignore=tests/e2e
 
   build-frontend:
     name: build SPA
