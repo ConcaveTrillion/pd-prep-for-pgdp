@@ -14,13 +14,27 @@ The DAG is hard-coded — there is no plugin layer. Adding a stage requires:
 
 1. Append it to `PAGE_STAGE_IDS` in `core/models.py`.
 2. Add a `Stage(...)` row in `_STAGE_DAG_TABLE` below.
-3. Bump `STAGE_VERSIONS[stage_id]` in `core/pipeline/registry.py` (M2).
+3. Bump `STAGE_VERSIONS[stage_id]` in this module (see below).
 4. Update the relevant smoke-test in `docs/08-roadmap.md`.
 
 A note on stage count: spec STAGE_VERSIONS table lists 22 stages.
 `docs/08-roadmap.md` M1 still says "16-stage registry" — that's stale
 roadmap text from before the spec was finalised. The spec is authoritative
 and this module enumerates all 22.
+
+## Stage versioning (Q4 lock)
+
+Each stage has an integer version in ``STAGE_VERSIONS`` below. When the
+stage's algorithm changes (e.g. after a ``pd-book-tools`` upgrade or a
+logic fix), bump its value by hand::
+
+    STAGE_VERSIONS["thumbnail"] = 2  # bumped: new resize algorithm
+
+On the next read of a ``page_stages`` row, if ``row.stage_version <
+STAGE_VERSIONS[stage_id]``, the row is treated as ``dirty`` regardless
+of its stored status.  The next successful stage run overwrites the
+version.  ``pgdp-prep reindex --heal`` proactively marks stale rows
+``dirty`` without running the stages.
 """
 
 from __future__ import annotations
@@ -289,6 +303,35 @@ _STAGE_DAG_TABLE: tuple[Stage, ...] = (
 # Module-level immutable handle. Tests assert exhaustiveness via
 # `PAGE_STAGE_IDS`; production callers iterate this for ordered access.
 STAGE_DAG: tuple[Stage, ...] = _STAGE_DAG_TABLE
+
+# Per-stage algorithm version registry (Q4 lock).
+# Bump a value by hand when the stage's algorithm changes.  The runner and
+# route layer check this dict on every row read; stale rows (row.stage_version
+# < STAGE_VERSIONS[stage_id]) are treated as dirty so they are rerun.
+STAGE_VERSIONS: dict[str, int] = {
+    "ingest_source": 1,
+    "thumbnail": 1,
+    "auto_detect_attrs": 1,
+    "auto_detect_illustrations": 1,
+    "decode_source": 1,
+    "initial_crop": 1,
+    "manual_deskew_pre": 1,
+    "grayscale": 1,
+    "threshold": 1,
+    "invert": 1,
+    "find_content_edges": 1,
+    "crop_to_content": 1,
+    "auto_deskew": 1,
+    "morph_fill": 1,
+    "rescale": 1,
+    "canvas_map": 1,
+    "blank_proof_synth": 1,
+    "ocr_crop": 1,
+    "extract_illustrations": 1,
+    "ocr": 1,
+    "text_postprocess": 1,
+    "text_review": 1,
+}
 
 
 # Lookup helpers ---------------------------------------------------------
