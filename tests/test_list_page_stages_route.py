@@ -18,12 +18,14 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+import pd_prep_for_pgdp.core.pipeline.stage_dag as _stage_dag_mod
 from pd_prep_for_pgdp.adapters.database.sqlite import SqliteDatabase
 from pd_prep_for_pgdp.bootstrap import build_app
 from pd_prep_for_pgdp.core.models import (
     PAGE_STAGE_IDS,
     PageProcessingStatus,
     PageRecord,
+    PageStageState,
     PageStageStatus,
     PipelineState,
     Project,
@@ -267,3 +269,48 @@ def test_list_page_stages_persists_rows_to_db(tmp_path: Path) -> None:
         return len(rows)
 
     assert asyncio.run(_check()) == 22
+
+
+# ─── Stage versioning: stale rows served as dirty ──────────────────────────
+
+
+def test_stale_stage_version_served_as_dirty(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A clean row with stage_version=1 is served as dirty when STAGE_VERSIONS
+    has been bumped to 2 for that stage.
+
+    Spec: docs/specs/pipeline-task-model.md §"Stage versioning (Q4 lock)".
+    """
+    settings = _settings(tmp_path)
+    _seed(settings)
+
+    async def _seed_clean_row() -> None:
+        db = SqliteDatabase(settings.derived_database_url)
+        await db.initialize()
+        await db.put_page_stage(
+            PageStageState(
+                project_id="m1c",
+                page_id="0000",
+                stage_id="thumbnail",
+                status=PageStageStatus.clean,
+                stage_version=1,
+            )
+        )
+        await db.close()
+
+    asyncio.run(_seed_clean_row())
+
+    # Bump STAGE_VERSIONS["thumbnail"] to 2 so the row is stale.
+    original = dict(_stage_dag_mod.STAGE_VERSIONS)
+    monkeypatch.setattr(_stage_dag_mod, "STAGE_VERSIONS", dict(original, thumbnail=2))
+
+    app = build_app(settings)
+    with TestClient(app) as client:
+        r = client.get("/api/data/projects/m1c/pages/0/stages")
+    assert r.status_code == 200
+    rows_by_id = {row["stage_id"]: row for row in r.json()}
+    assert rows_by_id["thumbnail"]["status"] == "dirty", (
+        "stale stage_version row must be served as dirty by the GET /stages route"
+    )

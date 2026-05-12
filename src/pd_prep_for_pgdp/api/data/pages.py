@@ -9,6 +9,8 @@ import uuid
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from pydantic import BaseModel
 
+import pd_prep_for_pgdp.core.pipeline.stage_dag as _stage_dag
+
 from ...adapters.auth import UserContext
 from ...adapters.database import IDatabase
 from ...adapters.gpu.cpu import load_words_from_storage, words_key_for
@@ -537,12 +539,18 @@ async def list_page_stages(
     # Order by topological order — matches spec §"Per-page stage DAG"
     # (sources first). Stages absent from the DAG (shouldn't happen because
     # the CHECK constraint pins to PAGE_STAGE_IDS) are silently dropped.
+    # Apply stage-version check: rows whose stored stage_version is behind
+    # STAGE_VERSIONS are served as dirty so the UI queues a rerun.
     by_id: dict[str, PageStageState] = {r.stage_id: r for r in rows}
     ordered: list[PageStageState] = []
     for stage in topological_order():
         row = by_id.get(stage.id)
-        if row is not None:
-            ordered.append(row)
+        if row is None:
+            continue
+        current_version = _stage_dag.STAGE_VERSIONS.get(row.stage_id, 1)
+        if row.stage_version < current_version and row.status == PageStageStatus.clean:
+            row = row.model_copy(update={"status": PageStageStatus.dirty})
+        ordered.append(row)
     return ordered
 
 
