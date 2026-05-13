@@ -37,6 +37,12 @@ class SearchResult:
     score: float
 
 
+@dataclass
+class SearchResultList:
+    results: list[SearchResult]
+    total_count: int
+
+
 class IDatabase(Protocol):
     # ── Lifecycle ───────────────────────────────────────────────────────────
     async def initialize(self) -> None: ...

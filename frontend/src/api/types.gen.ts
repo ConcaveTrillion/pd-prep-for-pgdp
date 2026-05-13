@@ -655,6 +655,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/data/projects/{project_id}/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search Project Pages */
+        get: operations["search_project_pages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/gpu/ingest": {
         parameters: {
             query?: never;
@@ -1743,6 +1760,24 @@ export interface components {
             unreviewed_count: number;
             /** Awaiting Review Job Id */
             awaiting_review_job_id: string | null;
+        };
+        /** SearchHitResponse */
+        SearchHitResponse: {
+            /** Page Id */
+            page_id: string;
+            /** Idx0 */
+            idx0: number;
+            /** Snippet */
+            snippet: string;
+            /** Score */
+            score: number;
+        };
+        /** SearchResponse */
+        SearchResponse: {
+            /** Results */
+            results: components["schemas"]["SearchHitResponse"][];
+            /** Total Count */
+            total_count: number;
         };
         /**
          * SourcePreviewResponse
@@ -3150,6 +3185,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StageFieldsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_project_pages: {
+        parameters: {
+            query?: {
+                q?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchResponse"];
                 };
             };
             /** @description Validation Error */

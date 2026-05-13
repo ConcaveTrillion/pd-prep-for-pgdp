@@ -385,6 +385,15 @@ class SqliteDatabase:
 
         await self._run(_go)
 
+    async def search_index_page(
+        self,
+        project_id: str,
+        page_id: str,
+        idx0: int,
+        ocr_text: str,
+    ) -> None:
+        await self.upsert_page_text(project_id, page_id, idx0, ocr_text)
+
     async def search(
         self,
         project_id: str,
@@ -620,6 +629,7 @@ class SqliteDatabase:
                 return rows_after - rows_before
 
         return await self._run(_go)
+
 
 
 def _row_to_page_stage(row: tuple) -> PageStageState:
