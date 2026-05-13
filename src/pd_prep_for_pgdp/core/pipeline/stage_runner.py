@@ -380,6 +380,50 @@ async def _cascade_dirty(
         await database.put_page_stage(row.model_copy(update={"status": PageStageStatus.dirty}))
 
 
+async def _cascade_dirty_to_split_children(
+    *,
+    database: IDatabase,
+    project_id: str,
+    page_id: str,
+    stage_id: str,
+) -> None:
+    """Cross-page dirty cascade: if stage_id is at or before a split child's
+    split_at_stage, mark the child's decode_source dirty and cascade from there.
+
+    "At or before" means stage_id == split_at_stage OR split_at_stage is a
+    descendant of stage_id in the DAG. A stage after the split point does not
+    invalidate the child's decode_source input.
+
+    Spec: docs/specs/pipeline-task-model.md §"Cross-page dirty propagation:
+    split children" (Q2 follow-up, issue #55).
+    """
+    children = await database.list_pages_by_parent_id(project_id, page_id)
+    if not children:
+        return
+
+    descendants_of_stage = compute_dirty_descendants(stage_id)
+
+    for child in children:
+        if child.split_at_stage is None:
+            continue
+        at_or_before = stage_id == child.split_at_stage or child.split_at_stage in descendants_of_stage
+        if not at_or_before:
+            continue
+        child_page_id = f"{child.idx0:04d}"
+        decode_row = await database.get_page_stage(project_id, child_page_id, "decode_source")
+        if decode_row is None:
+            continue
+        if decode_row.status in {PageStageStatus.clean, PageStageStatus.failed}:
+            await database.put_page_stage(decode_row.model_copy(update={"status": PageStageStatus.dirty}))
+        # Cascade dirty from decode_source to its descendants within the child.
+        await _cascade_dirty(
+            database=database,
+            project_id=project_id,
+            page_id=child_page_id,
+            stage_id="decode_source",
+        )
+
+
 async def _mark_running(
     *,
     database: IDatabase,
@@ -972,21 +1016,14 @@ async def run_stage(
     for desc_id in descendant_ids:
         await _emit(stage_events, project_id, page_id, "stage-status", desc_id, "dirty")
 
-    # Step 8c: cross-page dirty cascade. When ingest_source reruns on a parent
-    # page, every child page's decode_source row is dirtied — its input (the
-    # parent's source image cropped to source_crop_bbox) has changed.
-    # Only `clean` and `failed` rows are flipped; `not-run` rows stay as-is.
-    # Spec: §"Cross-page dirty propagation: split children".
-    if stage_id == "ingest_source":
-        child_pages = await database.list_pages_by_parent_id(project_id, page_id)
-        for _child in child_pages:
-            _child_pid = f"{_child.idx0:04d}"
-            _child_ds = await database.get_page_stage(project_id, _child_pid, "decode_source")
-            if _child_ds is not None and _child_ds.status in {
-                PageStageStatus.clean,
-                PageStageStatus.failed,
-            }:
-                await database.put_page_stage(_child_ds.model_copy(update={"status": PageStageStatus.dirty}))
+    # Step 8c: cross-page cascade — dirty split children's decode_source when
+    # this stage is at or before each child's split_at_stage (issue #55).
+    await _cascade_dirty_to_split_children(
+        database=database,
+        project_id=project_id,
+        page_id=page_id,
+        stage_id=stage_id,
+    )
 
     # Emit clean event for the completed stage after the cascade.
     await _emit(stage_events, project_id, page_id, "stage-status", stage_id, "clean")
