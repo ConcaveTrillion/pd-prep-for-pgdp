@@ -8,6 +8,7 @@ JSON files are not written and the DB is authoritative.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol
 
 from ...core.models import (
@@ -18,6 +19,26 @@ from ...core.models import (
     Project,
     SystemDefaults,
 )
+
+# ── Search results (M5) ──────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class SearchResult:
+    """A single search result from full-text search."""
+
+    page_id: str
+    idx0: int
+    snippet: str
+    score: float
+
+
+@dataclass(frozen=True)
+class SearchResultList:
+    """Search results with pagination metadata."""
+
+    results: list[SearchResult]
+    total_count: int
 
 
 class IDatabase(Protocol):
@@ -85,3 +106,8 @@ class IDatabase(Protocol):
     async def delete_page(self, project_id: str, idx0: int) -> None: ...
 
     async def list_pages_by_parent_id(self, project_id: str, parent_page_id: str) -> list[PageRecord]: ...
+
+    # ── Search (M5) ──────────────────────────────────────────────────────────
+    async def search(
+        self, project_id: str, query: str, *, limit: int = 20, offset: int = 0
+    ) -> SearchResultList: ...
