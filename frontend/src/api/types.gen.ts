@@ -170,6 +170,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/data/projects/{project_id}/review-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Project Review Status
+         * @description Return unreviewed page count + awaiting_review job for a project.
+         *
+         *     Used by the project banner and Open Tasks bell badge to show how many
+         *     pages still need text review before build_package can run.
+         */
+        get: operations["get_project_review_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/data/projects/{project_id}/pages": {
         parameters: {
             query?: never;
@@ -1714,6 +1737,13 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /** ReviewStatusResponse */
+        ReviewStatusResponse: {
+            /** Unreviewed Count */
+            unreviewed_count: number;
+            /** Awaiting Review Job Id */
+            awaiting_review_job_id: string | null;
+        };
         /**
          * SourcePreviewResponse
          * @description Cheap-to-compute preview of an uploaded source zip (P2 #8).
@@ -2323,6 +2353,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Project"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_review_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewStatusResponse"];
                 };
             };
             /** @description Validation Error */

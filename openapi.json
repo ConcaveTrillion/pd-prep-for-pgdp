@@ -480,6 +480,54 @@
         }
       }
     },
+    "/api/data/projects/{project_id}/review-status": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Get Project Review Status",
+        "description": "Return unreviewed page count + awaiting_review job for a project.\n\nUsed by the project banner and Open Tasks bell badge to show how many\npages still need text review before build_package can run.",
+        "operationId": "get_project_review_status",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/data/projects/{project_id}/pages": {
       "get": {
         "tags": [
@@ -4907,6 +4955,31 @@
         "type": "object",
         "title": "RetryJobRequest",
         "description": "Optional body for `POST /api/gpu/jobs/{id}/retry`.\n\n`payload_override`, when non-null, is shallow-merged over the original\njob's payload \u2014 keys present in the override replace the corresponding\nkeys; keys not present are preserved from the original. The original\njob is never mutated, so the audit trail stays intact."
+      },
+      "ReviewStatusResponse": {
+        "properties": {
+          "unreviewed_count": {
+            "type": "integer",
+            "title": "Unreviewed Count"
+          },
+          "awaiting_review_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Awaiting Review Job Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "unreviewed_count",
+          "awaiting_review_job_id"
+        ],
+        "title": "ReviewStatusResponse"
       },
       "SourcePreviewResponse": {
         "properties": {
