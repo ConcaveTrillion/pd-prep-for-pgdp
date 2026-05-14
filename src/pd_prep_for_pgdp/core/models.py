@@ -342,6 +342,11 @@ class Project(ApiModel):
     pipeline_state: PipelineState
     storage_prefix: str
     archived: bool = False
+    # Disk-cost banner fields (M4 spec §Disk-cost banner).
+    # Computed on GET /api/data/projects/{id}; zero means "no stage artifacts yet"
+    # and the banner hides itself.  `source_zip_bytes` is set once at ingest.
+    stage_artifacts_bytes: int = 0
+    source_zip_bytes: int = 0
 
 
 # ─── ResolvedPageConfig (output of resolver; not persisted) ──────────────────

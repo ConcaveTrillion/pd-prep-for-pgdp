@@ -4820,6 +4820,16 @@
             "type": "boolean",
             "title": "Archived",
             "default": false
+          },
+          "stage_artifacts_bytes": {
+            "type": "integer",
+            "title": "Stage Artifacts Bytes",
+            "default": 0
+          },
+          "source_zip_bytes": {
+            "type": "integer",
+            "title": "Source Zip Bytes",
+            "default": 0
           }
         },
         "type": "object",
@@ -4835,7 +4845,9 @@
           "config",
           "pipeline_state",
           "storage_prefix",
-          "archived"
+          "archived",
+          "stage_artifacts_bytes",
+          "source_zip_bytes"
         ],
         "title": "Project"
       },

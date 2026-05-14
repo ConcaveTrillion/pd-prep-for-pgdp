@@ -1620,6 +1620,16 @@ export interface components {
              * @default false
              */
             archived: boolean;
+            /**
+             * Stage Artifacts Bytes
+             * @default 0
+             */
+            stage_artifacts_bytes: number;
+            /**
+             * Source Zip Bytes
+             * @default 0
+             */
+            source_zip_bytes: number;
         };
         /** ProjectConfig */
         ProjectConfig: {

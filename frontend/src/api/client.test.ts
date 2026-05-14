@@ -46,6 +46,8 @@ describe("api.post against /api/data/projects (msw)", () => {
             proof_page_count: 0,
             storage_prefix: "projects/prj_abc123",
             archived: false,
+            stage_artifacts_bytes: 0,
+            source_zip_bytes: 0,
             pipeline_state: { steps: {} },
             config: {
               book_name: "Belloc — The Four Men",
@@ -115,6 +117,10 @@ describe("api.post against /api/data/projects (msw)", () => {
               page_count: 0,
               proof_page_count: 0,
               storage_prefix: "projects/prj_xyz",
+              archived: false,
+              stage_artifacts_bytes: 0,
+              source_zip_bytes: 0,
+              pipeline_state: { steps: {} },
               config: {
                 book_name: "x",
                 source_uri: "",

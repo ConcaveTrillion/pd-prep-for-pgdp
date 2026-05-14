@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -26,7 +28,44 @@ from ...core.models import (
     ProjectConfig,
     ProjectStatus,
 )
-from ..dependencies import get_database, get_storage, get_user
+from ...settings import Settings
+from ..dependencies import get_database, get_settings, get_storage, get_user
+
+# M4 spec §Disk-cost banner: rough multiplier from source-zip bytes to full-DAG bytes.
+# Empirically: 22 stages, most are image-typed at ~0.5x source per stage,
+# plus JSON/text stages at negligible size -> order-of-magnitude guidance.
+FULL_DAG_RATIO = 12
+
+
+def _compute_stage_artifacts_bytes(data_root: Path, project_id: str) -> int:
+    """Walk pages/*/stages/ under the project directory and sum file sizes.
+
+    Returns 0 when the directory doesn't exist yet (fresh project or no stages run).
+    Never raises — missing or inaccessible paths return 0 so the banner stays hidden.
+    """
+    project_dir = data_root / "projects" / project_id / "pages"
+    if not project_dir.is_dir():
+        return 0
+    total = 0
+    for page_dir in project_dir.iterdir():
+        stages_dir = page_dir / "stages"
+        if not stages_dir.is_dir():
+            continue
+        for f in stages_dir.rglob("*"):
+            if f.is_file():
+                with contextlib.suppress(OSError):
+                    total += f.stat().st_size
+    return total
+
+
+def _compute_source_zip_bytes(data_root: Path, project_id: str) -> int:
+    """Return file size of the project's source.zip, or 0 if absent."""
+    p = data_root / "projects" / project_id / "source.zip"
+    try:
+        return p.stat().st_size if p.is_file() else 0
+    except OSError:
+        return 0
+
 
 router = APIRouter(tags=["projects"])
 
@@ -118,12 +157,21 @@ async def get_project(
     project_id: str,
     user: UserContext = Depends(get_user),
     db: IDatabase = Depends(get_database),
+    settings: Settings = Depends(get_settings),
 ) -> Project:
     project = await db.get_project(project_id)
     if project is None:
         raise HTTPException(404, "project not found")
     if project.owner_id != user.user_id:
         raise HTTPException(403, "not authorised")
+    # Compute disk-cost fields on-demand (M4 spec §Disk-cost banner).
+    # These are read-only annotations — never persisted to the DB.
+    project = project.model_copy(
+        update={
+            "stage_artifacts_bytes": _compute_stage_artifacts_bytes(settings.data_root, project_id),
+            "source_zip_bytes": _compute_source_zip_bytes(settings.data_root, project_id),
+        }
+    )
     return project
 
 

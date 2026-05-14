@@ -57,6 +57,8 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     proof_page_count: 0,
     storage_prefix: "projects/prj_abc123",
     archived: false,
+    stage_artifacts_bytes: 0,
+    source_zip_bytes: 0,
     pipeline_state: { steps: {} },
     config: {
       book_name: "Belloc — The Four Men",
