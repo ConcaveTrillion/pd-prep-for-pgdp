@@ -1,3 +1,17 @@
+AI ?=
+LOG := .ci-ai.log
+
+ifdef AI
+_goals := $(or $(MAKECMDGOALS),ci)
+.PHONY: $(_goals)
+$(_goals):
+	@rm -f $(LOG)
+	@$(MAKE) --no-print-directory AI= $@ > $(LOG) 2>&1 \
+		&& echo "✅ $@ passed (log: $(LOG))" \
+		|| (echo "❌ $@ failed:"; uv run scripts/ai-filter-log.py $(LOG); echo "(full log: $(LOG))"; exit 1)
+
+else
+
 .PHONY: help setup refresh-version install uninstall reset remove-venv lint format \
         pre-commit-check test e2e build clean ci local-setup dev-local install-local \
         uninstall-local check-local-editable run run-cpu run-local frontend-install \
@@ -375,3 +389,5 @@ release-major: ## Release: bump major, run ci, tag, push, trigger GitHub release
 # Pass SKIP_PUSH=1 to create the tag locally without pushing (dry-run).
 _do-release:
 	@BUMP=$(or $(BUMP),minor) ./scripts/do-release.sh
+
+endif

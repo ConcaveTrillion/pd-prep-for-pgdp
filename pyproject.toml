@@ -120,6 +120,8 @@ ignore = [
 # Lazy imports inside functions (cycle-breaking + optional-dep patterns).
 "src/pd_prep_for_pgdp/api/gpu/jobs.py" = ["E402"]
 "src/pd_prep_for_pgdp/core/job_runner.py" = ["E402"]
+# CLI scripts and fixture scripts — print() is the output mechanism
+"scripts/*.py" = ["T201"]
 
 [tool.pyright]
 include = ["src", "tests", "scripts"]
