@@ -57,9 +57,6 @@ def _project(project_id: str = "proj1") -> Project:
     )
 
 
-# ── Bullet A: text_postprocess commit upserts FTS row ──────────────────────
-
-
 @pytest.mark.asyncio
 async def test_text_postprocess_commit_upserts_fts(tmp_path: Path, db: SqliteDatabase) -> None:
     """After committing a text_postprocess artifact, search returns the text."""
@@ -112,9 +109,6 @@ async def test_non_text_postprocess_stage_does_not_populate_fts(tmp_path: Path, 
     assert total == 0
 
 
-# ── Bullet B: split child indexed independently ─────────────────────────────
-
-
 @pytest.mark.asyncio
 async def test_split_child_indexed_independently(tmp_path: Path, db: SqliteDatabase) -> None:
     """A split child with unique text is found; parent with other text is not."""
@@ -147,9 +141,6 @@ async def test_split_child_indexed_independently(tmp_path: Path, db: SqliteDatab
     ids = [r.page_id for r in results]
     assert "0010a" in ids
     assert "0010" not in ids
-
-
-# ── Bullet C: re-run updates FTS, old text gone ─────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -190,9 +181,6 @@ async def test_rerun_text_postprocess_replaces_fts_row(tmp_path: Path, db: Sqlit
     new_after, new_total = await db.search("p1", "newtoken")
     assert new_total >= 1
     assert any(r.page_id == "0003" for r in new_after)
-
-
-# ── Bullet D: reindex --heal repairs FTS drift ──────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -256,9 +244,6 @@ async def test_reindex_heal_repairs_missing_fts_entry(tmp_path: Path) -> None:
     await db2.close()
 
 
-# ── Bullet E: normalized score in [0.0, 1.0] ────────────────────────────────
-
-
 @pytest.mark.asyncio
 async def test_search_score_normalized_range(tmp_path: Path, db: SqliteDatabase) -> None:
     """All search result scores are in [0.0, 1.0]."""
@@ -282,9 +267,6 @@ async def test_search_score_normalized_range(tmp_path: Path, db: SqliteDatabase)
     assert total >= 1
     for r in results:
         assert 0.0 <= r.score <= 1.0, f"score {r.score} out of [0, 1] range"
-
-
-# ── Pagination ───────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -311,9 +293,6 @@ async def test_search_pagination(tmp_path: Path, db: SqliteDatabase) -> None:
     assert set(r.page_id for r in page1).isdisjoint(set(r.page_id for r in page2))
 
 
-# ── Long-s normalization ─────────────────────────────────────────────────────
-
-
 @pytest.mark.asyncio
 async def test_long_s_normalization(tmp_path: Path, db: SqliteDatabase) -> None:
     """Long-s (U+017F) in indexed text is found by searching with regular s."""
@@ -332,9 +311,6 @@ async def test_long_s_normalization(tmp_path: Path, db: SqliteDatabase) -> None:
     results, total = await db.search("p1", "last")
     assert total >= 1
     assert any(r.page_id == "0099" for r in results)
-
-
-# ── Cross-project isolation ──────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio

@@ -376,13 +376,7 @@ class SqliteDatabase:
         idx0: int,
         ocr_text: str,
     ) -> None:
-        """Upsert one page's OCR text into page_text + page_text_fts atomically.
-
-        Existing FTS entry for this (project_id, page_id) is removed before
-        inserting the new one so re-runs of text_postprocess replace old text.
-        Both the companion table and the FTS virtual table are updated in a
-        single _cursor() transaction.
-        """
+        """Upsert page OCR text into page_text + page_text_fts atomically."""
         normalized = _normalize_for_fts(ocr_text)
 
         def _go() -> None:
@@ -422,13 +416,7 @@ class SqliteDatabase:
         limit: int = 20,
         offset: int = 0,
     ) -> tuple[list[SearchResult], int]:
-        """Full-text search across the project's indexed OCR pages.
-
-        Returns (results, total_count). `total_count` is the total number of
-        matching rows (before limit/offset) so callers can render pagination.
-        FTS5 BM25 rank is normalized to [0.0, 1.0] (1.0 = best match).
-        Snippet uses ocr_text column (index 3) with plain markers for now.
-        """
+        """FTS5 search; returns (results, total_count) sorted by BM25 rank."""
         normalized_query = _normalize_for_fts(query)
 
         def _go() -> tuple[list[SearchResult], int]:

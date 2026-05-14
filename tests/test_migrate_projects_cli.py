@@ -108,9 +108,6 @@ def _make_settings(tmp_path: Path, db_path: Path, data_root: Path):
     )
 
 
-# ─── _parse_args ────────────────────────────────────────────────────────────
-
-
 def test_parse_args_defaults() -> None:
     args = _parse_args([])
     assert args.project_id is None
@@ -131,9 +128,6 @@ def test_parse_args_omit_project_force_rebuild() -> None:
     args = _parse_args(["--force-rebuild"])
     assert args.project_id is None
     assert args.force_rebuild is True
-
-
-# ─── --force-rebuild: core ───────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -218,9 +212,6 @@ async def test_force_rebuild_summary_line(tmp_path: Path) -> None:
     assert "MB freed" in summary
 
 
-# ─── --force-rebuild: --page-idx ────────────────────────────────────────────
-
-
 @pytest.mark.asyncio
 async def test_force_rebuild_page_idx_narrows(tmp_path: Path) -> None:
     """--page-idx limits rebuild to one page; other pages untouched."""
@@ -261,9 +252,6 @@ async def test_force_rebuild_page_idx_narrows(tmp_path: Path) -> None:
 
     summary = out.getvalue()
     assert "1 page(s)" in summary
-
-
-# ─── --force-rebuild: omit project_id → all projects ────────────────────────
 
 
 @pytest.mark.asyncio

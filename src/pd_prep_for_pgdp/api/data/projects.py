@@ -312,11 +312,7 @@ async def get_project_review_status(
     user: UserContext = Depends(get_user),
     db: IDatabase = Depends(get_database),
 ) -> ReviewStatusResponse:
-    """Return unreviewed page count + awaiting_review job for a project.
-
-    Used by the project banner and Open Tasks bell badge to show how many
-    pages still need text review before build_package can run.
-    """
+    """Return unreviewed page count + awaiting_review job for a project."""
     project = await db.get_project(project_id)
     if project is None or project.owner_id != user.user_id:
         raise HTTPException(404, "project not found")
@@ -329,7 +325,6 @@ async def get_project_review_status(
     reviewed_ids = {s.page_id for s in clean_stages if s.stage_id == "text_review"}
     unreviewed_count = len(proof_page_ids - reviewed_ids)
 
-    # Find the most recent awaiting_review build_package job for this project.
     awaiting_review_job_id: str | None = None
     jobs = await db.list_recent_jobs(user.user_id, 200)
     for job in jobs:

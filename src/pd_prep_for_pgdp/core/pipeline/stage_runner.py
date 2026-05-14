@@ -387,15 +387,9 @@ async def _cascade_dirty_to_split_children(
     page_id: str,
     stage_id: str,
 ) -> None:
-    """Cross-page dirty cascade: if stage_id is at or before a split child's
-    split_at_stage, mark the child's decode_source dirty and cascade from there.
+    """Dirty split children's decode_source when stage_id is at or before each child's split_at_stage.
 
-    "At or before" means stage_id == split_at_stage OR split_at_stage is a
-    descendant of stage_id in the DAG. A stage after the split point does not
-    invalidate the child's decode_source input.
-
-    Spec: docs/specs/pipeline-task-model.md §"Cross-page dirty propagation:
-    split children" (Q2 follow-up, issue #55).
+    Spec: docs/specs/pipeline-task-model.md §"Cross-page dirty propagation: split children".
     """
     children = await database.list_pages_by_parent_id(project_id, page_id)
     if not children:

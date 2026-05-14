@@ -492,15 +492,7 @@ async def _rebuild_fts_drift(
     data_root: Path,
     reports: list[tuple[Project, str, ReconcileReport]],
 ) -> int:
-    """Rebuild FTS entries for pages whose text_postprocess artifact is clean but unindexed.
-
-    Walks every (project, page_id) pair in `reports`. For each page that has a
-    clean ``text_postprocess`` row in ``page_stages`` AND the artifact exists on
-    disk, checks whether ``page_text`` has an entry. If not, reads the artifact
-    and calls ``db.upsert_page_text`` to seed the FTS index.
-
-    Returns the number of FTS entries rebuilt.
-    """
+    """Rebuild missing FTS entries for clean text_postprocess pages; return count."""
     rebuilt = 0
     for project, page_id, _report in reports:
         # Check if this page has a clean text_postprocess stage row.

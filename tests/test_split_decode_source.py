@@ -34,8 +34,6 @@ from pd_prep_for_pgdp.core.pipeline.stage_runner import (
     run_stage,
 )
 
-# ─── Fixtures ────────────────────────────────────────────────────────────────
-
 
 @pytest.fixture
 async def db(tmp_path: Path) -> SqliteDatabase:
@@ -93,9 +91,6 @@ async def _make_child_page(
     )
     await db.put_page(child)
     return child
-
-
-# ─── Acceptance bullet 1: cropped PNG matches bbox region ───────────────────
 
 
 @pytest.mark.asyncio
@@ -247,9 +242,6 @@ async def test_decode_source_on_child_fails_when_parent_ingest_source_not_clean(
         )
 
 
-# ─── Acceptance bullet 2: input_hash deterministic of (parent_page_id, bbox) ─
-
-
 @pytest.mark.asyncio
 async def test_split_child_decode_source_input_hash_encodes_parent_and_bbox(
     tmp_path: Path,
@@ -354,9 +346,6 @@ async def test_split_child_decode_source_input_hash_changes_when_bbox_changes(
     )
     assert state_a.input_hash == _expected_input_hash(parent_page_id, bbox_a)
     assert state_b.input_hash == _expected_input_hash(parent_page_id, bbox_b)
-
-
-# ─── Acceptance bullet 3: ingest_source re-run dirties child decode_source ───
 
 
 @pytest.mark.asyncio

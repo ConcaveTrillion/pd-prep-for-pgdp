@@ -1,16 +1,3 @@
-/**
- * StageControlsPanel — M3 stage-filtered config controls.
- *
- * Fetches the list of PageConfigOverrides fields that the selected stage
- * reads (from GET /api/data/pipeline/stages/{stage_id}/fields), then
- * renders only those fields so the user can tune the config targeted at
- * the stage they want to re-run.
- *
- * Apply: PATCHes config_overrides (backend cascades dirty to downstream
- *   stages that share those fields).
- * Run: POSTs to the stage-run endpoint.
- */
-
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";

@@ -13,8 +13,6 @@ from fastapi.testclient import TestClient
 
 from pd_prep_for_pgdp.adapters.database.sqlite import SqliteDatabase
 
-# ── helpers ─────────────────────────────────────────────────────────────────
-
 
 def _create_project(client: TestClient) -> str:
     resp = client.post(
@@ -23,9 +21,6 @@ def _create_project(client: TestClient) -> str:
     )
     assert resp.status_code == 200
     return resp.json()["project"]["id"]
-
-
-# ── tests ────────────────────────────────────────────────────────────────────
 
 
 def test_search_empty_query_returns_400(client: TestClient) -> None:
