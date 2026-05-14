@@ -278,10 +278,31 @@ describe("StageChainRail M3 click-to-select", () => {
   });
 });
 
+// ─── M3: data-stage-id attribute ──────────────────────────────────────────────
+
+describe("StageChainRail M3 data-stage-id", () => {
+  it("each chip has a data-stage-id attribute matching its stage_id", async () => {
+    server.use(
+      http.get("/api/data/projects/p1/pages/0/stages", () =>
+        HttpResponse.json(STAGE_IDS.map((sid) => makeRow(sid))),
+      ),
+    );
+
+    renderRail();
+
+    await waitFor(() => {
+      for (const sid of STAGE_IDS) {
+        const chip = screen.getByTestId(`stage-chip-${sid}`);
+        expect(chip).toHaveAttribute("data-stage-id", sid);
+      }
+    });
+  });
+});
+
 // ─── M3: Inline thumbnails ─────────────────────────────────────────────────
 
 describe("StageChainRail M3 thumbnails", () => {
-  it("clean chip renders a thumbnail img pointing at the thumbnail endpoint", async () => {
+  it("clean image-type chip renders a thumbnail img pointing at the thumbnail endpoint", async () => {
     server.use(
       http.get("/api/data/projects/p1/pages/0/stages", () =>
         HttpResponse.json([
@@ -303,7 +324,27 @@ describe("StageChainRail M3 thumbnails", () => {
     });
   });
 
-  it("dirty chip renders a thumbnail img", async () => {
+  it("thumbnail src has no ?v= cache-busting param (ETag revalidation path)", async () => {
+    server.use(
+      http.get("/api/data/projects/p1/pages/0/stages", () =>
+        HttpResponse.json([
+          makeRow("grayscale", "clean", { last_run_at: 9999999 }),
+          ...STAGE_IDS.filter((s) => s !== "grayscale").map((s) => makeRow(s)),
+        ]),
+      ),
+    );
+
+    renderRail();
+
+    await waitFor(() => {
+      const thumb = screen.queryByTestId("stage-thumb-grayscale");
+      expect(thumb).toBeInTheDocument();
+      // No query string — browser's native If-None-Match / ETag handles freshness
+      expect(thumb?.getAttribute("src") ?? "").not.toContain("?v=");
+    });
+  });
+
+  it("dirty image-type chip renders a thumbnail img", async () => {
     server.use(
       http.get("/api/data/projects/p1/pages/0/stages", () =>
         HttpResponse.json([
@@ -320,6 +361,32 @@ describe("StageChainRail M3 thumbnails", () => {
     });
   });
 
+  it("clean non-image chip (find_content_edges) shows text icon, not a thumbnail img", async () => {
+    server.use(
+      http.get("/api/data/projects/p1/pages/0/stages", () =>
+        HttpResponse.json([
+          makeRow("find_content_edges", "clean"),
+          ...STAGE_IDS.filter((s) => s !== "find_content_edges").map((s) =>
+            makeRow(s),
+          ),
+        ]),
+      ),
+    );
+
+    renderRail();
+
+    await waitFor(() => {
+      // No thumbnail for text-output stage
+      expect(
+        screen.queryByTestId("stage-thumb-find_content_edges"),
+      ).not.toBeInTheDocument();
+      // Text icon shown instead
+      expect(
+        screen.queryByTestId("stage-icon-find_content_edges"),
+      ).toBeInTheDocument();
+    });
+  });
+
   it("not-run chips do NOT render thumbnail imgs", async () => {
     server.use(
       http.get("/api/data/projects/p1/pages/0/stages", () =>
@@ -333,6 +400,87 @@ describe("StageChainRail M3 thumbnails", () => {
       // All chips are rendered but none have thumbnails.
       expect(screen.queryByTestId("stage-chip-grayscale")).toBeInTheDocument();
       expect(screen.queryAllByTestId(/^stage-thumb-/).length).toBe(0);
+    });
+  });
+});
+
+// ─── M3: Run button in selected chip ──────────────────────────────────────────
+
+describe("StageChainRail M3 run button", () => {
+  it("selected chip shows a Run button", async () => {
+    server.use(
+      http.get("/api/data/projects/p1/pages/0/stages", () =>
+        HttpResponse.json([
+          makeRow("grayscale", "clean"),
+          ...STAGE_IDS.filter((s) => s !== "grayscale").map((s) => makeRow(s)),
+        ]),
+      ),
+    );
+
+    renderRail({ selectedStageId: "grayscale" });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("stage-run-btn-grayscale")).toBeInTheDocument();
+    });
+  });
+
+  it("non-selected chips do NOT show a Run button", async () => {
+    server.use(
+      http.get("/api/data/projects/p1/pages/0/stages", () =>
+        HttpResponse.json([
+          makeRow("grayscale", "clean"),
+          makeRow("threshold", "clean"),
+          ...STAGE_IDS.filter(
+            (s) => s !== "grayscale" && s !== "threshold",
+          ).map((s) => makeRow(s)),
+        ]),
+      ),
+    );
+
+    // grayscale is selected; threshold is not
+    renderRail({ selectedStageId: "grayscale" });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("stage-run-btn-grayscale")).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("stage-run-btn-threshold"),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("Run button calls onStageRun with the stage_id when clicked", async () => {
+    const onRun = vi.fn();
+    server.use(
+      http.get("/api/data/projects/p1/pages/0/stages", () =>
+        HttpResponse.json([
+          makeRow("grayscale", "clean"),
+          ...STAGE_IDS.filter((s) => s !== "grayscale").map((s) => makeRow(s)),
+        ]),
+      ),
+    );
+
+    renderRail({ selectedStageId: "grayscale", onStageRun: onRun });
+
+    const runBtn = await screen.findByTestId("stage-run-btn-grayscale");
+    const user = userEvent.setup();
+    await user.click(runBtn);
+
+    expect(onRun).toHaveBeenCalledWith("grayscale");
+  });
+
+  it("Run button does not appear for disabled (not-run) chips even if selectedStageId matches", async () => {
+    server.use(
+      http.get("/api/data/projects/p1/pages/0/stages", () =>
+        HttpResponse.json(STAGE_IDS.map((sid) => makeRow(sid, "not-run"))),
+      ),
+    );
+
+    renderRail({ selectedStageId: "grayscale" });
+
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId("stage-run-btn-grayscale"),
+      ).not.toBeInTheDocument();
     });
   });
 });
