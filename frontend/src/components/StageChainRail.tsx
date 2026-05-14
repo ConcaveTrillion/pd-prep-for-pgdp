@@ -2,9 +2,17 @@
  * StageChainRail — M3 polished workbench chip rail for the per-page stage DAG.
  *
  * Spec: docs/specs/2026-05-11-workbench-artifact-viewer-design.md §Decision #1
- * Each chip shows a status pill + inline thumbnail (lazy-loaded). Clicking a
- * clean/dirty chip calls onStageSelect; clicking not-run/not-applicable is a
- * no-op (chip is disabled).
+ * Each chip shows a status pill + inline thumbnail (lazy-loaded) for image-type
+ * stages, or a text icon for JSON/text-output stages. Clicking a clean/dirty
+ * chip calls onStageSelect; clicking not-run/not-applicable is a no-op (chip
+ * is disabled). A "Run this stage" button appears in the selected chip's
+ * expanded context — clicks are delegated to onStageRun.
+ *
+ * Thumbnail freshness: the /thumbnail URL carries no ?v= cache-busting param.
+ * The backend emits an ETag echoing the artifact's input_hash; the browser
+ * sends If-None-Match on re-fetches and gets a 304 when unchanged. This means
+ * re-run thumbnails reload automatically without a hard refresh as soon as the
+ * ETag changes.
  *
  * Visual contract:
  *   - not-run        gray   (disabled)
@@ -29,6 +37,7 @@ interface Props {
   idx0: number;
   selectedStageId?: string;
   onStageSelect?: (stageId: string) => void;
+  onStageRun?: (stageId: string) => void;
 }
 
 function chipClassesFor(status: PageStageStatus, selected: boolean): string {
@@ -74,11 +83,34 @@ function tooltipFor(row: PageStageState): string {
 
 const SELECTABLE: ReadonlySet<PageStageStatus> = new Set(["clean", "dirty"]);
 
+// Stage output type → whether the stage produces an image artifact.
+// Mirrors STAGE_OUTPUT_TYPE / IMAGE_OUTPUT_TYPES in ArtifactViewer.tsx.
+// Used to decide whether to show a thumbnail or a text icon in the chip.
+const IMAGE_STAGE_IDS = new Set([
+  "ingest_source",
+  "thumbnail",
+  "decode_source",
+  "initial_crop",
+  "manual_deskew_pre",
+  "grayscale",
+  "threshold",
+  "invert",
+  "crop_to_content",
+  "auto_deskew",
+  "morph_fill",
+  "rescale",
+  "canvas_map",
+  "blank_proof_synth",
+  "ocr_crop",
+  "extract_illustrations",
+]);
+
 export function StageChainRail({
   projectId,
   idx0,
   selectedStageId,
   onStageSelect,
+  onStageRun,
 }: Props) {
   // Subscribe to the per-page SSE stream. Events seed and patch the query
   // cache directly, so the useQuery below gets live updates without polling.
@@ -133,15 +165,19 @@ export function StageChainRail({
           const selectable = SELECTABLE.has(row.status);
           const selected = row.stage_id === selectedStageId;
           const cls = chipClassesFor(row.status, selected);
+          const isImageStage = IMAGE_STAGE_IDS.has(row.stage_id);
           const thumbUrl = `/api/data/projects/${projectId}/pages/${idx0}/stages/${row.stage_id}/thumbnail`;
           return (
             <span
               key={row.stage_id}
               className="inline-flex flex-col items-center gap-0.5"
             >
-              {/* Thumbnail: lazy-load via native loading attribute; only shown
-                  when the stage has an artifact (clean or dirty). */}
-              {selectable ? (
+              {/* Thumbnail or text icon: shown when the stage has an artifact
+                  (clean or dirty). Image-type stages get a lazy-loaded img;
+                  text/JSON-type stages get a small text icon. The thumbnail
+                  URL carries no ?v= param — the browser handles ETag
+                  revalidation (If-None-Match) natively. */}
+              {selectable && isImageStage ? (
                 <img
                   data-testid={`stage-thumb-${row.stage_id}`}
                   src={thumbUrl}
@@ -149,11 +185,21 @@ export function StageChainRail({
                   loading="lazy"
                   className="h-10 w-10 rounded border border-slate-200 object-cover"
                 />
+              ) : selectable && !isImageStage ? (
+                <span
+                  data-testid={`stage-icon-${row.stage_id}`}
+                  className="flex h-10 w-10 items-center justify-center rounded border border-slate-200 bg-slate-100 text-xs text-slate-500"
+                  title="Text artifact"
+                  aria-label="Text artifact"
+                >
+                  {"{}"}
+                </span>
               ) : null}
               <button
                 type="button"
                 data-testid={`stage-chip-${row.stage_id}`}
                 data-status={row.status}
+                data-stage-id={row.stage_id}
                 className={`rounded border px-2 py-1 text-[11px] font-mono ${cls}`}
                 title={tooltipFor(row)}
                 disabled={!selectable}
@@ -163,6 +209,19 @@ export function StageChainRail({
               >
                 {row.stage_id}
               </button>
+              {/* Run button: only shown for the selected selectable chip.
+                  This replaces click-to-run semantics: clicking the chip
+                  selects it; clicking "Run" triggers the stage. */}
+              {selectable && selected ? (
+                <button
+                  type="button"
+                  data-testid={`stage-run-btn-${row.stage_id}`}
+                  onClick={() => onStageRun?.(row.stage_id)}
+                  className="rounded border border-emerald-400 bg-emerald-50 px-2 py-0.5 text-[10px] text-emerald-800 hover:bg-emerald-100"
+                >
+                  Run
+                </button>
+              ) : null}
             </span>
           );
         })}
