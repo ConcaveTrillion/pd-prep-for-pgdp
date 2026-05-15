@@ -8,10 +8,17 @@ import {
   useMatch,
   useNavigate,
 } from "react-router-dom";
-import { api, getAuthToken, setAuthToken } from "./api/client";
+import { useHotkeys } from "react-hotkeys-hook";
+import { api, getAuthToken } from "./api/client";
 import type { components } from "./api/types.gen";
-import { ProfileDropdown } from "./components/ProfileDropdown";
+import { AwaitingReviewBanner } from "./components/AwaitingReviewBanner";
 import { ServerInfoFooter } from "./components/ServerInfoFooter";
+import { AppShell } from "./components/shell/AppShell";
+import { HotkeyHelpModal } from "./components/shell/HotkeyHelpModal";
+import { SearchModal } from "./components/shell/SearchModal";
+import { TopNav } from "./components/shell/TopNav";
+import { UserMenu } from "./components/shell/UserMenu";
+import { useUiPrefs } from "./stores/uiPrefs";
 
 type ReviewStatusResponse = components["schemas"]["ReviewStatusResponse"];
 import { JobsPage } from "./pages/JobsPage";
@@ -24,55 +31,75 @@ import { ProjectReviewQueuePage } from "./pages/ProjectReviewQueuePage";
 import { TextReviewPage } from "./pages/TextReviewPage";
 
 export default function App() {
+  const { setSearchOpen } = useUiPrefs();
+  const projectMatch = useMatch("/projects/:projectId/*");
+  const [hotkeyHelpOpen, setHotkeyHelpOpen] = useState(false);
+
+  useHotkeys("?", () => setHotkeyHelpOpen(true), { preventDefault: true });
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <AuthGuard />
-      <header className="border-b bg-white">
-        <nav className="mx-auto flex max-w-7xl items-center gap-6 px-4 py-3 text-sm">
-          <Link to="/" className="font-semibold">
-            pgdp-prep
-          </Link>
-          <Link to="/" className="text-slate-600 hover:text-slate-900">
-            Projects
-          </Link>
-          <Link to="/jobs" className="text-slate-600 hover:text-slate-900">
-            Jobs
-          </Link>
-          <Link to="/settings" className="text-slate-600 hover:text-slate-900">
-            Settings
-          </Link>
-          <OpenTasksBell />
-          <AuthBadge />
-        </nav>
-      </header>
-
-      <main className="mx-auto max-w-7xl p-4">
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/" element={<ProjectListPage />} />
-          <Route path="/jobs" element={<JobsPage />} />
-          <Route
-            path="/projects/:projectId"
-            element={<ProjectConfigurePage />}
+    <>
+      <SearchModal />
+      <HotkeyHelpModal
+        open={hotkeyHelpOpen}
+        onClose={() => setHotkeyHelpOpen(false)}
+      />
+      <AppShell
+        header={
+          <TopNav
+            centerSlot={
+              <button
+                onClick={() => setSearchOpen(true)}
+                className="flex w-full items-center gap-2 rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-400 hover:border-slate-600 hover:text-slate-300 transition-colors"
+                aria-label="Search (⌘K)"
+              >
+                <span className="flex-1 text-left">Search projects…</span>
+                <kbd className="ml-auto text-xs text-slate-500 font-mono">
+                  ⌘K
+                </kbd>
+              </button>
+            }
+            rightSlot={
+              <>
+                <OpenTasksBell />
+                <UserMenu />
+              </>
+            }
           />
-          <Route
-            path="/projects/:projectId/pages/:idx0"
-            element={<PageWorkbenchPage />}
-          />
-          <Route
-            path="/projects/:projectId/pages/:idx0/review"
-            element={<TextReviewPage />}
-          />
-          <Route
-            path="/projects/:projectId/review"
-            element={<ProjectReviewQueuePage />}
-          />
-          <Route path="/settings" element={<SettingsPage />} />
-        </Routes>
-      </main>
-
-      <ServerInfoFooter />
-    </div>
+        }
+        footer={<ServerInfoFooter />}
+      >
+        <AuthGuard />
+        {/* Global banner slot — rendered above all page content */}
+        <div className="banner-slot mx-auto max-w-7xl px-4 pt-4 space-y-2">
+          {projectMatch && <AwaitingReviewBanner />}
+        </div>
+        <div className="mx-auto max-w-7xl p-4">
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/" element={<ProjectListPage />} />
+            <Route path="/jobs" element={<JobsPage />} />
+            <Route
+              path="/projects/:projectId"
+              element={<ProjectConfigurePage />}
+            />
+            <Route
+              path="/projects/:projectId/pages/:idx0"
+              element={<PageWorkbenchPage />}
+            />
+            <Route
+              path="/projects/:projectId/pages/:idx0/review"
+              element={<TextReviewPage />}
+            />
+            <Route
+              path="/projects/:projectId/review"
+              element={<ProjectReviewQueuePage />}
+            />
+            <Route path="/settings" element={<SettingsPage />} />
+          </Routes>
+        </div>
+      </AppShell>
+    </>
   );
 }
 
@@ -104,7 +131,7 @@ function OpenTasksBell() {
   return (
     <Link
       to={`/projects/${projectId}/review`}
-      className="relative ml-auto flex items-center text-slate-600 hover:text-slate-900"
+      className="relative flex items-center text-slate-600 hover:text-slate-900"
       title={`${count} page${count === 1 ? "" : "s"} awaiting review`}
       aria-label={`Open tasks: ${count} page${count === 1 ? "" : "s"} awaiting review`}
     >
@@ -143,72 +170,5 @@ function AuthGuard() {
     });
     return () => unsub();
   }, [queryClient, navigate, location.pathname]);
-  return null;
-}
-
-/** Right-side nav widget: shows JWT user identity + sign-out, or apikey label. */
-function AuthBadge() {
-  const env = (window as any).__ENV__ ?? {};
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const [token, setToken] = useState<string | null>(getAuthToken());
-
-  // Refresh on storage events (e.g. after the LoginPage stores a token).
-  useEffect(() => {
-    const handler = () => setToken(getAuthToken());
-    window.addEventListener("storage", handler);
-    window.addEventListener("focus", handler);
-    return () => {
-      window.removeEventListener("storage", handler);
-      window.removeEventListener("focus", handler);
-    };
-  }, []);
-
-  // Pull identity from /api/auth/me — works across all auth modes.
-  const me = useQuery({
-    queryKey: ["me", token],
-    queryFn: () => api.get<{ user_id: string }>("/api/auth/me"),
-    retry: false,
-    enabled: env.AUTH_MODE !== "none",
-  });
-
-  if (env.AUTH_MODE === "none") return null;
-  if (env.AUTH_MODE === "apikey") {
-    if (!me.data) {
-      return (
-        <span className="ml-auto text-xs text-slate-400">apikey mode</span>
-      );
-    }
-    return (
-      <span className="ml-auto flex items-center gap-2 text-xs text-slate-600">
-        <span className="rounded bg-slate-100 px-2 py-0.5 font-mono">
-          {me.data.user_id}
-        </span>
-      </span>
-    );
-  }
-  if (env.AUTH_MODE === "jwt") {
-    if (!token) {
-      return (
-        <Link
-          to="/login"
-          className="ml-auto text-xs text-slate-600 hover:underline"
-        >
-          Sign in
-        </Link>
-      );
-    }
-    return (
-      <ProfileDropdown
-        token={token}
-        onSignOut={() => {
-          setAuthToken(null);
-          setToken(null);
-          queryClient.clear();
-          navigate("/login");
-        }}
-      />
-    );
-  }
   return null;
 }

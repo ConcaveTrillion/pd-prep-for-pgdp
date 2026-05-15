@@ -5,47 +5,64 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
-import { AwaitingReviewBanner } from "../components/AwaitingReviewBanner";
 import { DiskCostBanner } from "../components/DiskCostBanner";
 import { SearchPanel } from "../components/SearchPanel";
 import { SourcePreview } from "../components/SourcePreview";
+import { PageHeader } from "../components/shell/PageHeader";
+import { Card } from "../components/ui/Card";
+import { StatTile } from "../components/ui/StatTile";
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+} from "../components/ui/Tabs";
+import { PageDrawer } from "../components/workbench/PageDrawer";
+import { PageRow } from "../components/workbench/PageRow";
 import { useActiveBatchJob } from "../hooks/useActiveBatchJob";
 import { useJobProgress } from "../hooks/useJobProgress";
 import type { components } from "../api/types.gen";
 
-type AlignmentOverride = components["schemas"]["AlignmentOverride"];
 type ListPagesResponse = components["schemas"]["ListPagesResponse"];
-type PageRecord = components["schemas"]["PageRecord"];
-type PageType = components["schemas"]["PageType"];
 type Project = components["schemas"]["Project"];
 type ProjectConfig = components["schemas"]["ProjectConfig"];
 type UpdatePageRequest = components["schemas"]["UpdatePageRequest"];
-
-const PAGE_TYPE_BADGE: Record<PageType, { label: string; cls: string } | null> =
-  {
-    normal: null,
-    blank: { label: "BLANK", cls: "bg-amber-100 text-amber-900" },
-    plate_b: { label: "PLATE-B", cls: "bg-purple-100 text-purple-900" },
-    plate_p: { label: "PLATE-P", cls: "bg-pink-100 text-pink-900" },
-    plate_r: { label: "PLATE-R", cls: "bg-rose-100 text-rose-900" },
-  };
-
-const ALIGNMENT_BADGE: Record<
-  AlignmentOverride,
-  { label: string; cls: string } | null
-> = {
-  default: null,
-  top: { label: "TOP", cls: "bg-sky-100 text-sky-900" },
-  center: { label: "CENTER", cls: "bg-sky-100 text-sky-900" },
-  bottom: { label: "BOTTOM", cls: "bg-sky-100 text-sky-900" },
-};
 
 const INGEST_KINDS = ["unzip", "thumbnails"];
 
 export function ProjectConfigurePage() {
   const { projectId = "" } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = (searchParams.get("tab") ?? "pipeline") as
+    | "pipeline"
+    | "pages"
+    | "settings";
+
+  const handleTabChange = (value: string) => {
+    setSearchParams({ tab: value });
+  };
+
+  // Drawer state: ?drawer=<idx0> opens the PageDrawer for that page.
+  const drawerIdx0 =
+    searchParams.get("drawer") !== null
+      ? Number(searchParams.get("drawer"))
+      : null;
+
+  const openDrawer = (idx0: number) => {
+    setSearchParams((prev) => {
+      prev.set("drawer", String(idx0));
+      return prev;
+    });
+  };
+  const closeDrawer = () => {
+    setSearchParams((prev) => {
+      prev.delete("drawer");
+      return prev;
+    });
+  };
+
   const project = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => api.get<Project>(`/api/data/projects/${projectId}`),
@@ -80,12 +97,20 @@ export function ProjectConfigurePage() {
   );
   const total = pages.data?.pages?.[0]?.total ?? allPages.length;
 
+  // Page selected in the drawer (resolved from ?drawer=<idx0> URL param).
+  const selectedPage = useMemo(
+    () =>
+      drawerIdx0 !== null
+        ? (allPages.find((p) => p.idx0 === drawerIdx0) ?? null)
+        : null,
+    [allPages, drawerIdx0],
+  );
+
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  // Lifted from JobProgressInline: while a batch_process_pages job is
-  // running, this holds the idx0 of the page the worker is currently on
-  // so PageGrid can pulse-highlight the matching tile. Null when no
-  // such job is active.
-  const [activePageIdx0, setActivePageIdx0] = useState<number | null>(null);
+  // RunPipelinePanel reports the current page idx0 so we can pass it to
+  // setActivePageIdx0 for future active-page highlighting. The value
+  // itself is no longer consumed in this component (PageGrid removed).
+  const [, setActivePageIdx0] = useState<number | null>(null);
   const [showSplitParents, setShowSplitParents] = useState(false);
 
   // Compute the set of page_ids that are referenced as parent_page_id by
@@ -109,15 +134,6 @@ export function ProjectConfigurePage() {
           ),
     [allPages, showSplitParents, splitParentIds],
   );
-
-  // Build a map from page_id → prefix for split children to compute labels.
-  const prefixByPageId = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const p of allPages) {
-      m.set(String(p.idx0).padStart(4, "0"), p.prefix);
-    }
-    return m;
-  }, [allPages]);
 
   if (project.isLoading || pages.isLoading) {
     return <p className="text-slate-500">Loading…</p>;
@@ -166,104 +182,167 @@ export function ProjectConfigurePage() {
   }
 
   return (
-    <section className="space-y-4">
-      <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <ProjectTitleEdit
-            projectId={projectId}
-            currentName={project.data.name}
-          />
-          <p className="text-xs text-slate-500">
-            {total} pages · status: {project.data.status}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Link
-            to={`/projects/${projectId}/pages/0`}
-            className="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
-          >
-            Open Workbench
-          </Link>
-          <Link
-            to={`/projects/${projectId}/review`}
-            className="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
-          >
-            Review queue
-          </Link>
-        </div>
-      </header>
-
-      <AwaitingReviewBanner projectId={projectId} />
-      <DiskCostBanner project={project.data} />
-
-      <BookSettingsAccordion
-        projectId={projectId}
-        config={project.data.config}
-        totalPages={total}
+    <section className="space-y-0" data-testid="project-configure-page">
+      {/* Page header with project name and action buttons */}
+      <PageHeader
+        data-testid="project-page-header"
+        title={project.data.name}
+        actions={
+          <>
+            <Link
+              to={`/projects/${projectId}/pages/0`}
+              className="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
+            >
+              Open Workbench
+            </Link>
+            <Link
+              to={`/projects/${projectId}/review`}
+              className="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
+            >
+              Review queue
+            </Link>
+          </>
+        }
       />
 
-      <RunAllDirtyPanel projectId={projectId} />
-
-      <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
-        <RunPipelinePanel
-          projectId={projectId}
-          onActivePageChange={setActivePageIdx0}
+      {/* Stat tile row */}
+      <div
+        className="flex gap-6 px-6 py-3 border-b border-border-1"
+        data-testid="stat-tile-row"
+      >
+        <StatTile
+          value={project.data.page_count ?? 0}
+          label="Total pages"
+          data-testid="stat-total-pages"
         />
-        <div className="space-y-4">
-          <ProjectJobsFeed projectId={projectId} />
-          <SearchPanel projectId={projectId} />
-        </div>
+        <StatTile value={0} label="Done" data-testid="stat-done" />
+        <StatTile
+          value={0}
+          label="Awaiting review"
+          data-testid="stat-awaiting-review"
+        />
       </div>
 
-      <BulkActions
-        projectId={projectId}
-        selected={selected}
-        onClear={() => setSelected(new Set())}
-      />
+      {/* DiskCostBanner — page-local because it requires project prop from this page's query */}
+      <div className="px-6 pt-3">
+        <DiskCostBanner project={project.data} />
+      </div>
 
-      {splitParentIds.size > 0 && (
-        <div className="flex items-center gap-2">
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
-            <input
-              type="checkbox"
-              checked={showSplitParents}
-              onChange={(e) => setShowSplitParents(e.target.checked)}
-              className="rounded"
-            />
-            Show split parents ({splitParentIds.size})
-          </label>
-        </div>
-      )}
-
-      <PageGrid
-        pages={visiblePages}
-        projectId={projectId}
-        selected={selected}
-        activePageIdx0={activePageIdx0}
-        prefixByPageId={prefixByPageId}
-        onToggle={(idx0) => {
-          setSelected((s) => {
-            const next = new Set(s);
-            if (next.has(idx0)) next.delete(idx0);
-            else next.add(idx0);
-            return next;
-          });
-        }}
-      />
-
-      {pages.hasNextPage && (
-        <div className="text-center">
-          <button
-            onClick={() => pages.fetchNextPage()}
-            disabled={pages.isFetchingNextPage}
-            className="rounded border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
+      {/* URL-stateful tabs: Pipeline / Pages / Settings */}
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="mt-4">
+        <TabsList className="flex border-b border-border-1 px-6 gap-1">
+          <TabsTrigger
+            value="pipeline"
+            className="px-4 py-2 text-sm data-[state=active]:border-b-2 data-[state=active]:border-slate-900 data-[state=active]:font-medium"
           >
-            {pages.isFetchingNextPage
-              ? "Loading…"
-              : `Load more (${total - allPages.length} remaining)`}
-          </button>
-        </div>
-      )}
+            Pipeline
+          </TabsTrigger>
+          <TabsTrigger
+            value="pages"
+            className="px-4 py-2 text-sm data-[state=active]:border-b-2 data-[state=active]:border-slate-900 data-[state=active]:font-medium"
+          >
+            Pages
+          </TabsTrigger>
+          <TabsTrigger
+            value="settings"
+            className="px-4 py-2 text-sm data-[state=active]:border-b-2 data-[state=active]:border-slate-900 data-[state=active]:font-medium"
+          >
+            Settings
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Pipeline tab — pipeline controls */}
+        <TabsContent value="pipeline" className="space-y-4 px-6 pt-4">
+          <RunAllDirtyPanel projectId={projectId} />
+
+          <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+            <RunPipelinePanel
+              projectId={projectId}
+              onActivePageChange={setActivePageIdx0}
+            />
+            <div className="space-y-4">
+              <ProjectJobsFeed projectId={projectId} />
+              <SearchPanel projectId={projectId} />
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* Pages tab — page list with PageRow + PageDrawer */}
+        <TabsContent value="pages">
+          {/* Bulk actions and split-parent toggle live above the two-column area */}
+          <div className="space-y-4 px-6 pt-4">
+            <BulkActions
+              projectId={projectId}
+              selected={selected}
+              onClear={() => setSelected(new Set())}
+            />
+
+            {splitParentIds.size > 0 && (
+              <div className="flex items-center gap-2">
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={showSplitParents}
+                    onChange={(e) => setShowSplitParents(e.target.checked)}
+                    className="rounded"
+                  />
+                  Show split parents ({splitParentIds.size})
+                </label>
+              </div>
+            )}
+          </div>
+
+          {/* Two-column layout: page list | drawer */}
+          <div className="flex">
+            <div className="flex-1 overflow-auto">
+              <Card className="m-4" data-testid="pages-card">
+                {visiblePages.length === 0 && (
+                  <p className="px-4 py-6 text-sm text-ink-3 text-center">
+                    No pages yet.
+                  </p>
+                )}
+                {visiblePages.map((page) => (
+                  <PageRow
+                    key={page.idx0}
+                    page={page}
+                    isSelected={page.idx0 === drawerIdx0}
+                    onSelect={openDrawer}
+                  />
+                ))}
+              </Card>
+
+              {pages.hasNextPage && (
+                <div className="px-6 pb-4 text-center">
+                  <button
+                    onClick={() => pages.fetchNextPage()}
+                    disabled={pages.isFetchingNextPage}
+                    className="rounded border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {pages.isFetchingNextPage
+                      ? "Loading…"
+                      : `Load more (${total - allPages.length} remaining)`}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <PageDrawer
+              page={selectedPage}
+              projectId={projectId}
+              onClose={closeDrawer}
+            />
+          </div>
+        </TabsContent>
+
+        {/* Settings tab — book settings / config form */}
+        <TabsContent value="settings" className="space-y-4 px-6 pt-4">
+          <BookSettingsAccordion
+            projectId={projectId}
+            config={project.data.config}
+            totalPages={total}
+          />
+        </TabsContent>
+      </Tabs>
     </section>
   );
 }
@@ -541,154 +620,6 @@ function BulkActions({
   );
 }
 
-function PageGrid({
-  pages,
-  projectId,
-  selected,
-  activePageIdx0,
-  prefixByPageId,
-  onToggle,
-}: {
-  pages: PageRecord[];
-  projectId: string;
-  selected: Set<number>;
-  activePageIdx0: number | null;
-  prefixByPageId: Map<string, string>;
-  onToggle: (idx0: number) => void;
-}) {
-  const queryClient = useQueryClient();
-
-  const unsplit = useMutation({
-    mutationFn: (idx0: number) =>
-      api.delete<PageRecord>(
-        `/api/data/projects/${projectId}/pages/${idx0}/split`,
-      ),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["pages", projectId] });
-    },
-  });
-
-  const sorted = useMemo(
-    () => [...pages].sort((a, b) => a.idx0 - b.idx0),
-    [pages],
-  );
-  return (
-    <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
-      {sorted.map((p) => {
-        const sel = selected.has(p.idx0);
-        const isActive = activePageIdx0 === p.idx0;
-        const ptBadge = PAGE_TYPE_BADGE[p.page_type];
-        const alBadge = ALIGNMENT_BADGE[p.alignment];
-        const borderCls = sel
-          ? "border-slate-900 ring-2 ring-slate-900"
-          : isActive
-            ? "border-sky-500 ring-2 ring-sky-400 animate-pulse"
-            : "border-slate-200 hover:border-slate-400";
-
-        // Split-child display label: "{parent_prefix}-{split_index} (suffix)"
-        const isSplitChild = p.parent_page_id != null;
-        const parentPrefix = isSplitChild
-          ? (prefixByPageId.get(p.parent_page_id!) ?? "")
-          : null;
-        const splitLabel =
-          isSplitChild && parentPrefix != null
-            ? `${parentPrefix}-${p.split_index}${p.split_suffix ? ` (${p.split_suffix})` : ""}`
-            : null;
-
-        return (
-          <li
-            key={p.idx0}
-            className={`group relative rounded border ${borderCls} bg-white`}
-          >
-            <button
-              onClick={() => onToggle(p.idx0)}
-              className="block aspect-[2/3] w-full overflow-hidden rounded bg-slate-100"
-              aria-label={`page ${splitLabel ?? p.prefix ?? p.idx0}`}
-            >
-              {p.thumbnail_key ? (
-                <img
-                  src={`/cdn/${p.thumbnail_key}`}
-                  alt=""
-                  className="h-full w-full object-cover"
-                  loading="lazy"
-                />
-              ) : (
-                <div className="flex h-full items-center justify-center text-xs text-slate-400">
-                  no thumbnail
-                </div>
-              )}
-            </button>
-            <div className="space-y-1 px-2 py-1">
-              <div className="flex items-center justify-between text-[11px] text-slate-600">
-                <span className="font-mono">
-                  {splitLabel ?? p.prefix ?? `#${p.idx0}`}
-                </span>
-                <Link
-                  to={`/projects/${projectId}/pages/${p.idx0}`}
-                  className="text-slate-400 hover:text-slate-900"
-                >
-                  open →
-                </Link>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {ptBadge && (
-                  <span className={`rounded px-1 text-[10px] ${ptBadge.cls}`}>
-                    {ptBadge.label}
-                  </span>
-                )}
-                {alBadge && (
-                  <span className={`rounded px-1 text-[10px] ${alBadge.cls}`}>
-                    {alBadge.label}
-                  </span>
-                )}
-                {p.ignore && (
-                  <span className="rounded bg-slate-200 px-1 text-[10px] text-slate-600">
-                    OUTSIDE
-                  </span>
-                )}
-                {p.processing_status === "complete" && (
-                  <span
-                    className="rounded bg-emerald-100 px-1 text-[10px] text-emerald-800"
-                    title="processed"
-                  >
-                    ✓
-                  </span>
-                )}
-                {p.processing_status === "processing" && (
-                  <span
-                    className="rounded bg-sky-100 px-1 text-[10px] text-sky-800"
-                    title="processing"
-                  >
-                    …
-                  </span>
-                )}
-                {p.processing_status === "error" && (
-                  <span
-                    className="rounded bg-rose-100 px-1 text-[10px] text-rose-800"
-                    title={p.processing_error ?? "error"}
-                  >
-                    ⚠ err
-                  </span>
-                )}
-              </div>
-              {isSplitChild && (
-                <button
-                  onClick={() => unsplit.mutate(p.idx0)}
-                  disabled={unsplit.isPending}
-                  className="mt-0.5 w-full rounded border border-rose-200 bg-rose-50 px-1 py-0.5 text-[10px] text-rose-700 hover:bg-rose-100 disabled:opacity-50"
-                  aria-label={`Reverse split for page ${splitLabel ?? p.prefix}`}
-                >
-                  Reverse split
-                </button>
-              )}
-            </div>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
 // ─── M5: Run all dirty stages panel ───────────────────────────────────────
 
 /**
@@ -922,84 +853,6 @@ function JobProgressInline({
       {pageHint}
       {event.error && ` · ${event.error}`}
     </span>
-  );
-}
-
-// ─── Project title (inline rename) ────────────────────────────────────────
-
-function ProjectTitleEdit({
-  projectId,
-  currentName,
-}: {
-  projectId: string;
-  currentName: string;
-}) {
-  const queryClient = useQueryClient();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(currentName);
-
-  const rename = useMutation({
-    mutationFn: (name: string) =>
-      api.patch(`/api/data/projects/${projectId}/config`, {
-        name,
-        project_config: {},
-      }),
-    onSuccess: () => {
-      setEditing(false);
-      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-    },
-  });
-
-  if (!editing) {
-    return (
-      <h1
-        className="group flex cursor-pointer items-center gap-2 text-xl font-semibold"
-        onClick={() => {
-          setDraft(currentName);
-          setEditing(true);
-        }}
-        title="Click to rename"
-      >
-        {currentName}
-        <span className="text-xs text-slate-400 opacity-0 group-hover:opacity-100">
-          edit
-        </span>
-      </h1>
-    );
-  }
-  return (
-    <form
-      className="flex items-center gap-2"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (draft.trim()) rename.mutate(draft.trim());
-      }}
-    >
-      <input
-        autoFocus
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") setEditing(false);
-        }}
-        className="rounded border border-slate-300 px-2 py-1 text-xl font-semibold"
-      />
-      <button
-        type="submit"
-        disabled={rename.isPending}
-        className="rounded bg-slate-900 px-2 py-1 text-sm text-white disabled:opacity-50"
-      >
-        Save
-      </button>
-      <button
-        type="button"
-        onClick={() => setEditing(false)}
-        className="rounded border border-slate-300 px-2 py-1 text-sm hover:bg-slate-50"
-      >
-        Cancel
-      </button>
-    </form>
   );
 }
 
