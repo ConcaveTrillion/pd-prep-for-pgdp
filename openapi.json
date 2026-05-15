@@ -2162,88 +2162,6 @@
         ]
       }
     },
-    "/api/gpu/process-page": {
-      "post": {
-        "tags": [
-          "gpu"
-        ],
-        "summary": "Process Page",
-        "operationId": "process_page",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProcessPageRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProcessPageResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/gpu/run-ocr-page": {
-      "post": {
-        "tags": [
-          "gpu"
-        ],
-        "summary": "Run Ocr Page",
-        "operationId": "run_ocr_page",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/OcrPageRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OcrPageResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/gpu/suggest-splits": {
       "post": {
         "tags": [
@@ -2403,50 +2321,6 @@
                     "$ref": "#/components/schemas/Job"
                   },
                   "title": "Response List Gpu Jobs"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "gpu"
-        ],
-        "summary": "Submit Batch Job",
-        "operationId": "submit_batch_job",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BatchJobRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "202": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BatchJobResponse"
                 }
               }
             }
@@ -2705,45 +2579,6 @@
           "bottom"
         ],
         "title": "AlignmentOverride"
-      },
-      "BatchJobRequest": {
-        "properties": {
-          "project_id": {
-            "type": "string",
-            "title": "Project Id"
-          },
-          "job_type": {
-            "type": "string",
-            "enum": [
-              "batch_process_pages",
-              "batch_ocr",
-              "batch_text_postprocess",
-              "batch_extract_illustrations",
-              "build_package"
-            ],
-            "title": "Job Type"
-          },
-          "page_idxs": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "integer"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Page Idxs"
-          }
-        },
-        "type": "object",
-        "required": [
-          "project_id",
-          "job_type"
-        ],
-        "title": "BatchJobRequest"
       },
       "BatchJobResponse": {
         "properties": {
@@ -3483,10 +3318,6 @@
         "enum": [
           "unzip",
           "thumbnails",
-          "batch_process_pages",
-          "batch_ocr",
-          "batch_text_postprocess",
-          "batch_extract_illustrations",
           "build_package",
           "run_page_stage",
           "project_run_dirty",
@@ -3525,92 +3356,6 @@
           "total"
         ],
         "title": "ListPagesResponse"
-      },
-      "OcrPageRequest": {
-        "properties": {
-          "project_id": {
-            "type": "string",
-            "title": "Project Id"
-          },
-          "idx0": {
-            "type": "integer",
-            "title": "Idx0"
-          },
-          "split_suffix": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Split Suffix"
-          },
-          "engine": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "doctr",
-                  "tesseract"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Engine"
-          },
-          "model_key": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Model Key"
-          },
-          "batch_mode": {
-            "type": "boolean",
-            "title": "Batch Mode",
-            "default": false
-          }
-        },
-        "type": "object",
-        "required": [
-          "project_id",
-          "idx0"
-        ],
-        "title": "OcrPageRequest"
-      },
-      "OcrPageResponse": {
-        "properties": {
-          "text": {
-            "type": "string",
-            "title": "Text"
-          },
-          "words": {
-            "items": {
-              "$ref": "#/components/schemas/OcrWord"
-            },
-            "type": "array",
-            "title": "Words"
-          },
-          "text_key": {
-            "type": "string",
-            "title": "Text Key"
-          }
-        },
-        "type": "object",
-        "required": [
-          "text",
-          "words",
-          "text_key"
-        ],
-        "title": "OcrPageResponse"
       },
       "OcrWord": {
         "properties": {
@@ -4813,93 +4558,6 @@
           "steps"
         ],
         "title": "PipelineState"
-      },
-      "ProcessPageRequest": {
-        "properties": {
-          "project_id": {
-            "type": "string",
-            "title": "Project Id"
-          },
-          "idx0": {
-            "type": "integer",
-            "title": "Idx0"
-          },
-          "config_overrides": {
-            "$ref": "#/components/schemas/PageConfigOverrides-Input"
-          },
-          "output_context": {
-            "type": "string",
-            "enum": [
-              "workbench",
-              "commit"
-            ],
-            "title": "Output Context",
-            "default": "workbench"
-          }
-        },
-        "type": "object",
-        "required": [
-          "project_id",
-          "idx0",
-          "config_overrides"
-        ],
-        "title": "ProcessPageRequest"
-      },
-      "ProcessPageResponse": {
-        "properties": {
-          "processed_image_key": {
-            "type": "string",
-            "title": "Processed Image Key"
-          },
-          "processed_image_url": {
-            "type": "string",
-            "title": "Processed Image Url"
-          },
-          "dimensions": {
-            "prefixItems": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "integer"
-              }
-            ],
-            "type": "array",
-            "maxItems": 2,
-            "minItems": 2,
-            "title": "Dimensions"
-          },
-          "processing_time_ms": {
-            "type": "integer",
-            "title": "Processing Time Ms"
-          },
-          "backend": {
-            "type": "string",
-            "enum": [
-              "local",
-              "cpu",
-              "mps",
-              "modal",
-              "shared_container"
-            ],
-            "title": "Backend"
-          },
-          "cold_start_ms": {
-            "type": "integer",
-            "title": "Cold Start Ms",
-            "default": 0
-          }
-        },
-        "type": "object",
-        "required": [
-          "processed_image_key",
-          "processed_image_url",
-          "dimensions",
-          "processing_time_ms",
-          "backend",
-          "cold_start_ms"
-        ],
-        "title": "ProcessPageResponse"
       },
       "Project": {
         "properties": {

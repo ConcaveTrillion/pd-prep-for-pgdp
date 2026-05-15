@@ -32,15 +32,6 @@ import { ArtifactViewer } from "../components/ArtifactViewer";
 import { StageChainRail } from "../components/StageChainRail";
 import { StageControlsPanel } from "../components/StageControlsPanel";
 
-interface ProcessPageResponse {
-  processed_image_key: string;
-  processed_image_url: string;
-  dimensions: [number, number];
-  processing_time_ms: number;
-  backend: string;
-  cold_start_ms: number;
-}
-
 interface PageSplit {
   suffix: string;
   reading_order: number;
@@ -120,7 +111,6 @@ export function PageWorkbenchPage() {
   }, [jobProgress.currentPage, idx0, liveBatchJobId, queryClient, projectId]);
 
   const [overrides, setOverrides] = useState<PageConfigOverrides>({});
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [editMode, setEditMode] = useState<EditMode>("view");
   const [selectedStageId, setSelectedStageId] = useState<string | undefined>(
     undefined,
@@ -157,17 +147,6 @@ export function PageWorkbenchPage() {
   useEffect(() => {
     if (page.data) setOverrides(page.data.config_overrides);
   }, [page.data]);
-
-  const preview = useMutation({
-    mutationFn: () =>
-      api.post<ProcessPageResponse>("/api/gpu/process-page", {
-        project_id: projectId,
-        idx0,
-        config_overrides: overrides,
-        output_context: "workbench",
-      }),
-    onSuccess: (resp) => setPreviewUrl(resp.processed_image_url),
-  });
 
   const commitOverrides = useMutation({
     mutationFn: (patch: UpdatePageRequest) =>
@@ -449,7 +428,7 @@ export function PageWorkbenchPage() {
         )}
 
         <CanvasViewer
-          imageKey={previewUrl ?? `/cdn/${page.data.thumbnail_key ?? ""}`}
+          imageKey={`/cdn/${page.data.thumbnail_key ?? ""}`}
           page={page.data}
           editMode={editMode}
           onDrawSplit={handleAddSplit}
@@ -512,14 +491,10 @@ export function PageWorkbenchPage() {
         <ConfigOverridesPanel
           overrides={overrides}
           onChange={setOverrides}
-          onPreview={() => preview.mutate()}
+          onPreview={() => runStage.mutate("canvas_map")}
           onSave={() => commitOverrides.mutate({ config_overrides: overrides })}
-          previewing={preview.isPending}
-          backendInfo={
-            preview.data
-              ? `${preview.data.backend} · ${preview.data.processing_time_ms}ms`
-              : null
-          }
+          previewing={runStage.isPending}
+          backendInfo={null}
         />
       </aside>
     </section>

@@ -221,11 +221,12 @@ describe("TextReviewPage save lifecycle", () => {
   });
 
   it("re-OCRs and shows diff", async () => {
-    // Capture the body posted to /api/gpu/run-ocr-page so we can
-    // assert the wire shape `reocr.mutate()` actually sends. The
-    // route also mocks the GET endpoints the page issues on mount,
-    // mirroring the first test's scaffold.
-    const ocrCalls: { url: string; body: unknown }[] = [];
+    // M6: re-OCR now uses the per-stage endpoint instead of the legacy
+    // /api/gpu/run-ocr-page. The stage run POST returns a PageStageState,
+    // then the component invalidates the page-text query so the GET
+    // re-fetches with the new text.
+    const stageCalls: { url: string }[] = [];
+    let textCallCount = 0;
 
     server.use(
       http.get("/api/data/projects/:projectId/pages/:idx0", ({ params }) =>
@@ -236,33 +237,40 @@ describe("TextReviewPage save lifecycle", () => {
           }),
         ),
       ),
-      http.get("/api/data/projects/:projectId/pages/:idx0/text/_", () =>
-        HttpResponse.json({
-          text: "alpha\nbeta\ngamma\n",
-          text_key: "projects/prj_abc/text/0001.txt",
-          words: [],
-        }),
-      ),
-      // Re-OCR endpoint — returns a payload with a deliberate single-
-      // line edit ("beta" -> "BETA") so the resulting diff is
-      // guaranteed to have at least one delete row and one insert row
-      // (the LCS keeps "alpha" / "gamma" as `equal`).
-      http.post("/api/gpu/run-ocr-page", async ({ request }) => {
-        ocrCalls.push({
-          url: request.url,
-          body: await request.json(),
-        });
+      // First GET returns "alpha/beta/gamma"; subsequent calls (after
+      // invalidation) return "alpha/BETA/gamma" to simulate re-OCR.
+      http.get("/api/data/projects/:projectId/pages/:idx0/text/_", () => {
+        textCallCount += 1;
+        const text =
+          textCallCount === 1 ? "alpha\nbeta\ngamma\n" : "alpha\nBETA\ngamma\n";
         return HttpResponse.json({
-          text: "alpha\nBETA\ngamma\n",
+          text,
           text_key: "projects/prj_abc/text/0001.txt",
           words: [],
         });
       }),
+      // Per-stage OCR endpoint (M6 replacement).
+      http.post(
+        "/api/data/projects/:projectId/pages/:idx0/stages/ocr_page/run",
+        ({ request }) => {
+          stageCalls.push({ url: request.url });
+          // Return a minimal PageStageState-shaped object.
+          return HttpResponse.json({
+            project_id: "prj_abc",
+            page_id: "0000",
+            stage_id: "ocr_page",
+            status: "clean",
+            artifact_key: null,
+            error_message: null,
+            updated_at: new Date().toISOString(),
+          });
+        },
+      ),
     );
 
     renderAtRoute(<TextReviewPage />, "/projects/prj_abc/pages/0/review");
 
-    // Wait for the textarea to populate from the GET /text response.
+    // Wait for the textarea to populate from the first GET /text response.
     await waitFor(() => {
       const el = document.querySelector("textarea") as HTMLTextAreaElement;
       expect(el).not.toBeNull();
@@ -275,19 +283,13 @@ describe("TextReviewPage save lifecycle", () => {
     });
     await user.click(reocrBtn);
 
-    // (a) POST fired with the documented body shape. `splitSuffix` is
-    // empty, so the wire value is `null` (see TextReviewPage.tsx:121).
+    // (a) POST fired to the per-stage endpoint.
     await waitFor(() => {
-      expect(ocrCalls).toHaveLength(1);
+      expect(stageCalls).toHaveLength(1);
     });
-    expect(ocrCalls[0].url).toMatch(/\/api\/gpu\/run-ocr-page$/);
-    expect(ocrCalls[0].body).toEqual({
-      project_id: "prj_abc",
-      idx0: 0,
-      split_suffix: null,
-    });
+    expect(stageCalls[0].url).toMatch(/\/stages\/ocr_page\/run$/);
 
-    // (b) Textarea content is replaced with the re-OCR response.
+    // (b) Textarea content is updated from the refetched GET /text response.
     await waitFor(() => {
       const el = document.querySelector("textarea") as HTMLTextAreaElement;
       expect(el.value).toBe("alpha\nBETA\ngamma\n");

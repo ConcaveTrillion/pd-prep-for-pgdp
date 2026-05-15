@@ -18,12 +18,6 @@ import {
   type OcrWord,
 } from "../lib/wordOffsets";
 
-interface OcrPageResponse {
-  text: string;
-  text_key: string;
-  words: OcrWord[];
-}
-
 // §9a delete-words wire shapes — sourced from the generated OpenAPI
 // types. The endpoint is the canonical contract, so any future change
 // in `api/data/pages.py::DeleteWordsRequest`/`Response` flows here via
@@ -262,13 +256,15 @@ export function TextReviewPage() {
     [selectedWordIds],
   );
 
+  // Re-OCR using the per-stage endpoint (M6 replaces legacy /api/gpu/run-ocr-page).
+  // The ocr_page stage writes the text artifact to disk; after it completes we
+  // invalidate the page-text query so the useEffect below picks up the new text.
   const reocr = useMutation({
     mutationFn: () =>
-      api.post<OcrPageResponse>("/api/gpu/run-ocr-page", {
-        project_id: projectId,
-        idx0,
-        split_suffix: splitSuffix || null,
-      }),
+      api.post(
+        `/api/data/projects/${projectId}/pages/${idx0}/stages/ocr_page/run`,
+        {},
+      ),
     onMutate: () => {
       // Snapshot the textarea content right before the new OCR
       // result lands. Closure captures the current `text`, so
@@ -278,11 +274,9 @@ export function TextReviewPage() {
       setPriorText(text);
       setShowDiff(true);
     },
-    onSuccess: (resp) => {
-      setText(resp.text);
-      setWords(resp.words ?? []);
-      setDirty(false);
-      setActiveWordIndex(null);
+    onSuccess: () => {
+      // Invalidate the text query; the useEffect on text$.data updates
+      // text / words / dirty / activeWordIndex when the refetch completes.
       queryClient.invalidateQueries({
         queryKey: ["page-text", projectId, idx0, splitSuffix],
       });

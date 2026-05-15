@@ -1,37 +1,28 @@
 /**
- * Wire-level tests for the workbench drag-create + preview surfaces.
+ * Wire-level tests for the workbench drag-create surfaces.
  *
  * The `PageWorkbenchPage` component itself isn't mounted here — that
  * needs Konva + Router + QueryClient and belongs to a later tick. What
  * we lock here is the contract the component *uses*:
  *
- *   1. `POST /api/gpu/process-page` — the synchronous preview endpoint
- *      that the "Preview" button hits (`preview.mutate()` in
- *      `PageWorkbenchPage.tsx` lines 110-119). Body shape comes from
- *      `adapters/gpu/base.py::ProcessPageRequest`; response shape from
- *      `ProcessPageResponse` (mirrored inline in the component).
- *
- *   2. `PATCH /api/data/projects/{id}/pages/{idx0}` with a `splits`
+ *   1. `PATCH /api/data/projects/{id}/pages/{idx0}` with a `splits`
  *      array body — the path drag-create takes after the user releases
  *      the mouse on a split rectangle (`handleAddSplit` ->
  *      `commitOverrides.mutate({ splits: [...]})`). The `pages.test.ts`
  *      already covers the page-type PATCH; this asserts the
  *      array-shaped split body that drag-create actually sends.
  *
- *   3. Same PATCH with an `illustration_regions` array body — drag-
+ *   2. Same PATCH with an `illustration_regions` array body — drag-
  *      create's other branch (`handleAddRegion`).
  *
- * No `types.ts` extension needed: `ProcessPageRequest`/`Response` aren't
- * exported there yet (it's a hand-written subset). We declare the shapes
- * locally so the test stays a wire test and doesn't drag in an OpenAPI
- * regen.
+ * Note: `POST /api/gpu/process-page` tests removed in M6 — the Preview
+ * button now calls the per-stage endpoint (canvas_map) via the existing
+ * runStage mutation.
  */
 import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it } from "vitest";
 import type { components } from "./types.gen";
 
-// PageConfigOverrides-Input here: tests build partial fixtures (fields optional).
-type PageConfigOverrides = components["schemas"]["PageConfigOverrides-Input"];
 type PageRecord = components["schemas"]["PageRecord"];
 import { api, setAuthToken } from "./client";
 import { server } from "../test/server";
@@ -39,24 +30,6 @@ import { server } from "../test/server";
 afterEach(() => {
   setAuthToken(null);
 });
-
-// ─── Local mirrors of the GPU wire shapes ──────────────────────────────────
-
-interface ProcessPageRequestBody {
-  project_id: string;
-  idx0: number;
-  config_overrides: PageConfigOverrides;
-  output_context: "workbench" | "commit";
-}
-
-interface ProcessPageResponseBody {
-  processed_image_key: string;
-  processed_image_url: string;
-  dimensions: [number, number];
-  processing_time_ms: number;
-  backend: "local" | "cpu" | "mps" | "modal" | "shared_container";
-  cold_start_ms: number;
-}
 
 // ─── PageRecord helper (smaller copy from pages.test.ts to keep this file
 //     standalone; once the third file lands the boilerplate moves to a
@@ -109,86 +82,6 @@ function makePage(overrides: Partial<PageRecord> = {}): PageRecord {
     ...overrides,
   };
 }
-
-describe("api.post against /api/gpu/process-page (msw)", () => {
-  it("sends ProcessPageRequest body and returns parsed ProcessPageResponse", async () => {
-    const seenRequests: {
-      body: unknown;
-      method: string;
-      contentType: string | null;
-    }[] = [];
-
-    server.use(
-      http.post("/api/gpu/process-page", async ({ request }) => {
-        seenRequests.push({
-          body: await request.json(),
-          method: request.method,
-          contentType: request.headers.get("Content-Type"),
-        });
-        const response: ProcessPageResponseBody = {
-          processed_image_key: "projects/prj_abc123/preview/4.png",
-          processed_image_url: "/cdn/projects/prj_abc123/preview/4.png",
-          dimensions: [1200, 1800],
-          processing_time_ms: 412,
-          backend: "cpu",
-          cold_start_ms: 0,
-        };
-        return HttpResponse.json(response);
-      }),
-    );
-
-    const requestBody: ProcessPageRequestBody = {
-      project_id: "prj_abc123",
-      idx0: 4,
-      config_overrides: {
-        threshold_level: 180,
-        skip_auto_deskew: true,
-      },
-      output_context: "workbench",
-    };
-
-    const result = await api.post<ProcessPageResponseBody>(
-      "/api/gpu/process-page",
-      requestBody,
-    );
-
-    expect(seenRequests).toHaveLength(1);
-    expect(seenRequests[0].method).toBe("POST");
-    expect(seenRequests[0].contentType).toBe("application/json");
-    expect(seenRequests[0].body).toEqual(requestBody);
-
-    expect(result.backend).toBe("cpu");
-    expect(result.dimensions).toEqual([1200, 1800]);
-    expect(result.processed_image_url).toBe(
-      "/cdn/projects/prj_abc123/preview/4.png",
-    );
-    expect(result.processing_time_ms).toBe(412);
-  });
-
-  it("propagates 503 when no GPU backend is available", async () => {
-    server.use(
-      http.post("/api/gpu/process-page", () =>
-        HttpResponse.json(
-          { detail: "no GPU backend configured" },
-          { status: 503 },
-        ),
-      ),
-    );
-
-    await expect(
-      api.post<ProcessPageResponseBody>("/api/gpu/process-page", {
-        project_id: "prj_abc123",
-        idx0: 0,
-        config_overrides: {},
-        output_context: "workbench",
-      } satisfies ProcessPageRequestBody),
-    ).rejects.toMatchObject({
-      message: "HTTP 503",
-      status: 503,
-      detail: { detail: "no GPU backend configured" },
-    });
-  });
-});
 
 describe("workbench drag-create PATCH /api/data/projects/{id}/pages/{idx0} (msw)", () => {
   it("sends the splits[] body when a split rectangle is committed", async () => {

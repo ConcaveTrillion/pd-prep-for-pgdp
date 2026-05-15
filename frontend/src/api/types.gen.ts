@@ -723,40 +723,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/gpu/process-page": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Process Page */
-        post: operations["process_page"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/gpu/run-ocr-page": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Run Ocr Page */
-        post: operations["run_ocr_page"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/gpu/suggest-splits": {
         parameters: {
             query?: never;
@@ -821,8 +787,7 @@ export interface paths {
          */
         get: operations["list_gpu_jobs"];
         put?: never;
-        /** Submit Batch Job */
-        post: operations["submit_batch_job"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -930,18 +895,6 @@ export interface components {
          * @enum {string}
          */
         AlignmentOverride: "default" | "top" | "center" | "bottom";
-        /** BatchJobRequest */
-        BatchJobRequest: {
-            /** Project Id */
-            project_id: string;
-            /**
-             * Job Type
-             * @enum {string}
-             */
-            job_type: "batch_process_pages" | "batch_ocr" | "batch_text_postprocess" | "batch_extract_illustrations" | "build_package";
-            /** Page Idxs */
-            page_idxs?: number[] | null;
-        };
         /** BatchJobResponse */
         BatchJobResponse: {
             /** Job Id */
@@ -1254,7 +1207,7 @@ export interface components {
          * JobType
          * @enum {string}
          */
-        JobType: "unzip" | "thumbnails" | "batch_process_pages" | "batch_ocr" | "batch_text_postprocess" | "batch_extract_illustrations" | "build_package" | "run_page_stage" | "project_run_dirty" | "project_run_stage_all_pages";
+        JobType: "unzip" | "thumbnails" | "build_package" | "run_page_stage" | "project_run_dirty" | "project_run_stage_all_pages";
         /** ListPagesResponse */
         ListPagesResponse: {
             /** Pages */
@@ -1263,33 +1216,6 @@ export interface components {
             next_cursor?: string | null;
             /** Total */
             total: number;
-        };
-        /** OcrPageRequest */
-        OcrPageRequest: {
-            /** Project Id */
-            project_id: string;
-            /** Idx0 */
-            idx0: number;
-            /** Split Suffix */
-            split_suffix?: string | null;
-            /** Engine */
-            engine?: ("doctr" | "tesseract") | null;
-            /** Model Key */
-            model_key?: string | null;
-            /**
-             * Batch Mode
-             * @default false
-             */
-            batch_mode: boolean;
-        };
-        /** OcrPageResponse */
-        OcrPageResponse: {
-            /** Text */
-            text: string;
-            /** Words */
-            words: components["schemas"]["OcrWord"][];
-            /** Text Key */
-            text_key: string;
         };
         /** OcrWord */
         OcrWord: {
@@ -1604,44 +1530,6 @@ export interface components {
             steps: {
                 [key: string]: components["schemas"]["StepState"];
             };
-        };
-        /** ProcessPageRequest */
-        ProcessPageRequest: {
-            /** Project Id */
-            project_id: string;
-            /** Idx0 */
-            idx0: number;
-            config_overrides: components["schemas"]["PageConfigOverrides-Input"];
-            /**
-             * Output Context
-             * @default workbench
-             * @enum {string}
-             */
-            output_context: "workbench" | "commit";
-        };
-        /** ProcessPageResponse */
-        ProcessPageResponse: {
-            /** Processed Image Key */
-            processed_image_key: string;
-            /** Processed Image Url */
-            processed_image_url: string;
-            /** Dimensions */
-            dimensions: [
-                number,
-                number
-            ];
-            /** Processing Time Ms */
-            processing_time_ms: number;
-            /**
-             * Backend
-             * @enum {string}
-             */
-            backend: "local" | "cpu" | "mps" | "modal" | "shared_container";
-            /**
-             * Cold Start Ms
-             * @default 0
-             */
-            cold_start_ms: number;
         };
         /** Project */
         Project: {
@@ -3393,72 +3281,6 @@ export interface operations {
             };
         };
     };
-    process_page: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ProcessPageRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProcessPageResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    run_ocr_page: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["OcrPageRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OcrPageResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     suggest_splits: {
         parameters: {
             query?: never;
@@ -3576,39 +3398,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Job"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    submit_batch_job: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BatchJobRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BatchJobResponse"];
                 };
             };
             /** @description Validation Error */
