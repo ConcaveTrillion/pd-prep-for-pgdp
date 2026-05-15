@@ -198,6 +198,7 @@ export function ArtifactViewer({ projectId, idx0, selectedStageId }: Props) {
             onValueChange={(value) => setPrimaryId(value || undefined)}
           >
             <SelectTrigger
+              aria-label="Stage"
               data-testid="artifact-primary-select"
               className="rounded border border-slate-300 px-2 py-1 text-sm"
             >
@@ -211,9 +212,9 @@ export function ArtifactViewer({ projectId, idx0, selectedStageId }: Props) {
                   </SelectItem>
                 ))
               ) : (
-                <div className="px-2 py-1 text-xs text-slate-400">
+                <SelectItem value="" disabled>
                   No stages available
-                </div>
+                </SelectItem>
               )}
             </SelectContent>
           </Select>
@@ -225,6 +226,7 @@ export function ArtifactViewer({ projectId, idx0, selectedStageId }: Props) {
             onValueChange={(value) => setCompareId(value || undefined)}
           >
             <SelectTrigger
+              aria-label="Compare with"
               data-testid="artifact-compare-select"
               className="rounded border border-slate-300 px-2 py-1 text-sm"
             >
@@ -238,9 +240,9 @@ export function ArtifactViewer({ projectId, idx0, selectedStageId }: Props) {
                   </SelectItem>
                 ))
               ) : (
-                <div className="px-2 py-1 text-xs text-slate-400">
+                <SelectItem value="" disabled>
                   No stages available
-                </div>
+                </SelectItem>
               )}
             </SelectContent>
           </Select>
