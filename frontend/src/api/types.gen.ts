@@ -190,6 +190,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/data/projects/{project_id}/run-dirty": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Project Run Dirty
+         * @description Submit a project_run_dirty job.
+         *
+         *     Fans out across every page in the project, running every dirty or
+         *     not-run stage in DAG order.  An optional ``stage_filter`` query
+         *     parameter restricts the sweep to a single stage_id.
+         */
+        post: operations["project_run_dirty"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/data/projects/{project_id}/build-package": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Project Build Package
+         * @description Submit a build_package job for the project.
+         *
+         *     The job runner will park it in ``awaiting_review`` if any proof-range
+         *     page has not yet had its ``text_review`` stage marked clean.  It
+         *     auto-resumes once the last page is attested.
+         */
+        post: operations["project_build_package"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/data/projects/{project_id}/pages": {
         parameters: {
             query?: never;
@@ -1192,6 +1240,16 @@ export interface components {
          * @enum {string}
          */
         JobStatus: "queued" | "scheduled" | "running" | "awaiting_review" | "complete" | "error" | "cancelled";
+        /**
+         * JobSubmitResponse
+         * @description Minimal response for project-level job submission routes.
+         */
+        JobSubmitResponse: {
+            /** Job Id */
+            job_id: string;
+            /** Status */
+            status: string;
+        };
         /**
          * JobType
          * @enum {string}
@@ -2424,6 +2482,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReviewStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    project_run_dirty: {
+        parameters: {
+            query?: {
+                stage_filter?: string | null;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobSubmitResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    project_build_package: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobSubmitResponse"];
                 };
             };
             /** @description Validation Error */

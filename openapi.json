@@ -528,6 +528,118 @@
         }
       }
     },
+    "/api/data/projects/{project_id}/run-dirty": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Project Run Dirty",
+        "description": "Submit a project_run_dirty job.\n\nFans out across every page in the project, running every dirty or\nnot-run stage in DAG order.  An optional ``stage_filter`` query\nparameter restricts the sweep to a single stage_id.",
+        "operationId": "project_run_dirty",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "stage_filter",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Stage Filter"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobSubmitResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/data/projects/{project_id}/build-package": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Project Build Package",
+        "description": "Submit a build_package job for the project.\n\nThe job runner will park it in ``awaiting_review`` if any proof-range\npage has not yet had its ``text_review`` stage marked clean.  It\nauto-resumes once the last page is attested.",
+        "operationId": "project_build_package",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobSubmitResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/data/projects/{project_id}/pages": {
       "get": {
         "tags": [
@@ -3346,6 +3458,25 @@
           "cancelled"
         ],
         "title": "JobStatus"
+      },
+      "JobSubmitResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "JobSubmitResponse",
+        "description": "Minimal response for project-level job submission routes."
       },
       "JobType": {
         "type": "string",

@@ -20,6 +20,7 @@ from ...core.ingest import (
     peek_zip_image_names,
 )
 from ...core.models import (
+    Job,
     JobStatus,
     JobType,
     PageStageStatus,
@@ -388,3 +389,81 @@ async def get_project_review_status(
         unreviewed_count=unreviewed_count,
         awaiting_review_job_id=awaiting_review_job_id,
     )
+
+
+class JobSubmitResponse(BaseModel):
+    """Minimal response for project-level job submission routes."""
+
+    job_id: str
+    status: str
+
+
+@router.post(
+    "/projects/{project_id}/run-dirty",
+    response_model=JobSubmitResponse,
+    status_code=202,
+    operation_id="project_run_dirty",
+)
+async def project_run_dirty(
+    project_id: str,
+    stage_filter: str | None = None,
+    user: UserContext = Depends(get_user),
+    db: IDatabase = Depends(get_database),
+    settings: Settings = Depends(get_settings),
+) -> JobSubmitResponse:
+    """Submit a project_run_dirty job.
+
+    Fans out across every page in the project, running every dirty or
+    not-run stage in DAG order.  An optional ``stage_filter`` query
+    parameter restricts the sweep to a single stage_id.
+    """
+    project = await db.get_project(project_id)
+    if project is None or project.owner_id != user.user_id:
+        raise HTTPException(404, "project not found")
+
+    payload: dict = {"data_root": str(settings.data_root)}
+    if stage_filter is not None:
+        payload["stage_filter"] = stage_filter
+
+    job = Job(
+        id=uuid.uuid4().hex,
+        project_id=project_id,
+        owner_id=user.user_id,
+        type=JobType.project_run_dirty,
+        status=JobStatus.queued,
+        payload=payload,
+    )
+    await db.put_job(job)
+    return JobSubmitResponse(job_id=job.id, status=job.status.value)
+
+
+@router.post(
+    "/projects/{project_id}/build-package",
+    response_model=JobSubmitResponse,
+    status_code=202,
+    operation_id="project_build_package",
+)
+async def project_build_package(
+    project_id: str,
+    user: UserContext = Depends(get_user),
+    db: IDatabase = Depends(get_database),
+) -> JobSubmitResponse:
+    """Submit a build_package job for the project.
+
+    The job runner will park it in ``awaiting_review`` if any proof-range
+    page has not yet had its ``text_review`` stage marked clean.  It
+    auto-resumes once the last page is attested.
+    """
+    project = await db.get_project(project_id)
+    if project is None or project.owner_id != user.user_id:
+        raise HTTPException(404, "project not found")
+
+    job = Job(
+        id=uuid.uuid4().hex,
+        project_id=project_id,
+        owner_id=user.user_id,
+        type=JobType.build_package,
+        status=JobStatus.queued,
+    )
+    await db.put_job(job)
+    return JobSubmitResponse(job_id=job.id, status=job.status.value)
