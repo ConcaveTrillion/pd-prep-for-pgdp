@@ -226,6 +226,51 @@ describe("ProjectListPage delete confirm uses AlertDialog (§13a step 1b)", () =
   });
 });
 
+describe("ProjectListPage layout (P2-1)", () => {
+  it("renders PageHeader with title 'Projects'", async () => {
+    server.use(http.get("/api/data/projects", () => HttpResponse.json([])));
+    renderWithProviders(<ProjectListPage />);
+    // PageHeader renders an h1 with the page title
+    expect(
+      await screen.findByRole("heading", { level: 1, name: /^projects$/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders card grid when projects exist", async () => {
+    server.use(
+      http.get("/api/data/projects", () =>
+        HttpResponse.json([makeProject(), makeProject({ id: "prj_xyz" })]),
+      ),
+    );
+    renderWithProviders(<ProjectListPage />);
+    const grid = await screen.findByTestId("project-grid");
+    expect(grid).toBeInTheDocument();
+    // Two project cards — each has an Open button
+    const openBtns = screen.getAllByRole("button", { name: /^open$/i });
+    expect(openBtns).toHaveLength(2);
+  });
+
+  it("renders empty state card with dashed border when no projects", async () => {
+    server.use(http.get("/api/data/projects", () => HttpResponse.json([])));
+    renderWithProviders(<ProjectListPage />);
+    const emptyState = await screen.findByTestId("empty-state");
+    expect(emptyState).toBeInTheDocument();
+    expect(emptyState).toHaveTextContent(/no projects yet/i);
+  });
+
+  it("renders an Open button per project card", async () => {
+    server.use(
+      http.get("/api/data/projects", () =>
+        HttpResponse.json([makeProject({ name: "Book Alpha" })]),
+      ),
+    );
+    renderWithProviders(<ProjectListPage />);
+    expect(
+      await screen.findByRole("button", { name: /^open$/i }),
+    ).toBeInTheDocument();
+  });
+});
+
 describe("ProjectListPage create-project flow", () => {
   it("submits the name + zip upload and POSTs CreateProjectRequest with source_type=zip", async () => {
     const createCalls: CreateProjectRequest[] = [];
