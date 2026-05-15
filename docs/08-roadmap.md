@@ -368,63 +368,9 @@ filtered controls panel; live SSE updates across tabs.
 
 ---
 
-#### M4 — Migration of existing projects + disk-cost UI
+#### M4 — Migration of existing projects + disk-cost UI (shipped)
 
-**Scope:**
-
-- Lazy-migrate on first access: synthesise `page_stages` rows from
-  legacy `processing_status` (canonical spec §Migration story).
-  Mark every applicable stage `dirty` (the legacy artifacts aren't
-  in the new tree).
-- `pgdp-prep migrate-projects --force-rebuild` CLI for users who
-  want the opt-in force-rebuild path.
-- Disk-cost callout in the project header banner: "Stage artifacts
-  for this project: 12.4 GB / ~16 GB estimated full-DAG. Reclaim
-  space?" with a click-through to a future `--prune-stage-artifacts`
-  flow (UI placeholder; actual prune lands later).
-
-**Required test fixtures:** a pre-existing project from before
-M1–M3. If none exists, the user should run M0 (the current main)
-end-to-end on a real book first, then switch branches to M4 and
-verify migration.
-
-**How to verify by running the app (UI smoke-test):**
-
-1. Before switching branches: `make run` on the pre-M1 codebase.
-   Create a project "M4-pre-migrate", upload the test zip, run the
-   batch pipeline through to "complete" status. Quit.
-2. Switch to the M4 branch: `make run`. Open the same project.
-3. The page list should still load; pages should still be navigable.
-4. Open a page in the workbench. The stage chain rail should show
-   every applicable stage as `dirty` (yellow) — not `clean`, not
-   `not-run`. The page's `processing_status` rolled-up view should
-   read "needs reprocessing" or similar.
-5. The project header banner should show the disk-cost estimate and
-   a "Reclaim space" button (placeholder; it should at minimum link
-   to a help page or open a "coming soon" dialog).
-6. Click "Run all dirty stages on this page". All chips should
-   transition to `clean` and the per-stage artifacts should appear
-   under `pages/<page_id>/stages/`.
-7. From a fresh terminal:
-   `pgdp-prep migrate-projects --force-rebuild <project_id>`. The CLI
-   should clear all `page_stages` rows for that project and all
-   on-disk stage artifacts under `pages/<page_id>/stages/`,
-   leaving source images and thumbnails untouched.
-
-**Pass criterion:** opening a pre-M1 project produces a sensible
-"every stage is dirty" view, and the user can recover full state by
-running dirty.
-
-**UI artifacts that prove M4 shipped:** project banner with
-disk-cost estimate; the page list still works for old projects; the
-stage rail correctly shows old projects as `dirty`.
-
-**Likely failure modes:**
-
-- The page list crashes because the migration didn't synthesise rows
-  for some pages (e.g. ones with `processing_status='error'`).
-- The disk-cost banner shows 0 GB or NaN — the estimator is reading
-  the wrong directory.
+Shipped 2026-05-14. Full delivery summary lives in `08-roadmap-shipped.md`.
 
 ---
 

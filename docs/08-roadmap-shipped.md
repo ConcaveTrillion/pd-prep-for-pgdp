@@ -639,3 +639,26 @@ sub-millisecond per test on Linux.
 - `d958f4b` feat(cli): persist last-port across restarts (§L1 step 2)
 - `3234768` feat(api): add GET /api/server-info + bound host/port env passthrough (§L1 step 3 backend)
 - `dd09985` feat(frontend): ServerInfoFooter surfaces bound URL via /api/server-info (§L1 step 3 frontend)
+
+---
+
+## §P0.5 M4 — Migration of existing projects + disk-cost UI (2026-05-14)
+
+Lazy migration of pre-M1 projects: on first workbench open, `_initial_stage_status`
+in `adapters/database/sqlite.py` marks legacy pages (processing_status ∈
+{complete, processing, error}) as `dirty` instead of `not-run` so users see
+the realistic "needs reprocessing" view rather than misleading `not-run`.
+`pgdp-prep migrate-projects --force-rebuild` CLI deletes page_stages rows +
+on-disk stage artifacts and re-synthesises dirty rows. Disk-cost banner in
+ProjectConfigurePage shows `stage_artifacts_bytes` and estimated full-DAG
+bytes (source_zip_bytes × 12) with a "Reclaim space" placeholder dialog.
+
+**Sub-slices and commits:**
+
+- Lazy migration + `_initial_stage_status` — commit `982f2e7` (issue #95).
+- `--force-rebuild` CLI with `--page-idx` narrow + summary line — commit `0986dfb`,
+  fix `4e204ea` (issue #96).
+- `stage_artifacts_bytes` / `source_zip_bytes` fields on `Project` model;
+  `FULL_DAG_RATIO=12` constant; `_compute_stage_artifacts_bytes` / `_compute_source_zip_bytes`
+  helpers in `api/data/projects.py` — commit `1239dbb` (issue #97).
+- `DiskCostBanner` component (9 Vitest tests) wired into ProjectConfigurePage — commit `26b9dfc`.
