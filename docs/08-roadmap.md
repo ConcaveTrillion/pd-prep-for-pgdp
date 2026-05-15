@@ -303,62 +303,9 @@ proofing PNG.
 
 ---
 
-#### M3 — Workbench artifact viewer + stage controls panel
+#### M3 — Workbench artifact viewer + stage controls panel (shipped)
 
-**Scope:**
-
-- Pretty stage-chain rail (replaces M2's Database state debug
-  panel). Status pills, per-stage thumbnails, click-to-select.
-- Side-by-side artifact compare: `Stage: [▼]` and
-  `Compare with: [▼]` selectors; the framework streams the two
-  artifacts and lays them out at full image res.
-- Stage-controls panel: when a stage is selected, the panel filters
-  `ResolvedPageConfig` to only the fields that stage reads, plus
-  Apply + Run buttons.
-- SSE per-stage transitions update the rail live without a page
-  reload.
-
-**Required test fixtures:** the test zip from M1/M2.
-
-**How to verify by running the app (UI smoke-test):**
-
-1. `make run`. Open the M2-smoke project (or create a new "M3-smoke"
-   project from the test zip).
-2. Open page f001 in the workbench. The stage rail should now look
-   visually polished — 22 chips with consistent status colours, each
-   showing a small inline thumbnail of its output (when one exists).
-3. Click on the `threshold` chip. The artifact viewer pane should
-   load the threshold output image. The "Compare with" selector
-   should auto-select `grayscale`. The two images should appear
-   side-by-side at the same scale.
-4. The stage-controls panel should now show only the threshold-
-   relevant fields (e.g. `threshold_level: [Otsu auto / 140]` toggle
-   plus a numeric input). Other fields like `fuzzy_pct` should not appear.
-5. Change `threshold_level` from "Otsu auto" to `160`. Click "Apply +
-   Run this stage". The chip should flicker through running → clean,
-   the artifact viewer should swap to the new output, and downstream
-   chips should turn `dirty` — all without a page reload.
-6. Open a second browser tab on the same page. In tab 1, click "Run
-   from `auto_deskew`". Tab 2 should observe the chip statuses
-   updating live via SSE (no manual refresh).
-
-**Pass criterion:** the workbench shows a real per-stage artifact
-strip on a real page in a real browser, and changing one stage's
-config produces a visible new artifact within ≤2 s.
-
-**UI artifacts that prove M3 shipped:** polished stage-chain rail
-with thumbnails; functional side-by-side artifact viewer; stage-
-filtered controls panel; live SSE updates across tabs.
-
-**Likely failure modes:**
-
-- The artifact viewer shows a stale image after a stage rerun → the
-  artifact endpoint is caching too aggressively or the URL didn't
-  change (it should include the row's `last_run_at` as a cache
-  buster).
-- The stage-controls panel shows every config field regardless of
-  selected stage → the field-to-stage map on the frontend is empty
-  / wrong.
+Shipped 2026-05-15. Full delivery summary lives in `08-roadmap-shipped.md`.
 
 ---
 

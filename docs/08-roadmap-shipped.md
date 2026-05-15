@@ -698,3 +698,70 @@ workbench (previously only `clean`/`dirty` chips were selectable). Thumbnail/ico
 rendering guarded by `HAS_ARTIFACT` (`clean`/`dirty` only). `StageControlsPanel`
 and `PageWorkbenchPage.onApplied` now invalidate the correct `["page-stages", ...]`
 query key. Commit `e8e5254`.
+
+---
+
+## §P0.5 M3 — Workbench artifact viewer + stage controls panel (2026-05-15)
+
+Tracking issues #83, #84, #9 closed 2026-05-15. All M3 scope shipped across earlier
+slices (commits `a05ef89`, `3ef1b52`, `e8e5254`).
+
+**StageChainRail M3 (#83):** polished chip rail with inline thumbnails (lazy-loaded
+via `/api/data/projects/{id}/pages/{idx}/stages/{stage}/thumbnail`), text icons for
+JSON/text output-type stages, `data-stage-id` attributes, click-to-select (selects
+chip + loads ArtifactViewer + StageControlsPanel), Run button in selected-chip
+context, pulse animation and status colour-coding preserved from M2.
+
+**ArtifactViewer M3 (#84):** side-by-side Stage and Compare dropdowns; ETag-based
+cache busting (artifact URL carries `input_hash` for revalidation); full-res image
+with scroll; JSON/text stages render content in a scrollable code block; viewer
+hidden when no chip selected.
+
+**StageControlsPanel + wiring (#9):** stage-filtered config fields via
+`GET /api/data/pipeline/stages/{stage_id}/fields`; Apply + Run buttons; wired into
+`PageWorkbenchPage` with `selectedStageId` propagated from chip rail to both viewer
+and controls panel. SSE per-stage transitions in `StageChainRail` (EventSource on
+`/api/data/projects/{id}/pages/{idx}/stages/events`).
+
+---
+
+## §P0.5 M5 — Project-level orchestration fan-out + awaiting_review gate (partial, 2026-05-15)
+
+Tracking issue #11 / spec issue #45 (closed). Backend handlers and data-route
+completion shipped 2026-05-15. Remaining: M5 is functionally complete pending
+a full end-to-end smoke-test confirming the `awaiting_review` gate + auto-resume
+flow works in a live `make run` session.
+
+**STAGE_IMPL registry cutover (#85/#91):** `CpuBackend.process_page` routes through
+`STAGE_IMPL` registry via `_handle_project_run_dirty`-style loop over
+`_PROCESS_PAGE_STAGES`. No call sites of `process_page_cpu` remain in `src/`
+(only the function definition). Tests in `tests/test_issue91_registry_cutover.py`.
+Commits `7bbaf55`.
+
+**Project-level fan-out handlers:** `_handle_project_run_dirty` and
+`_handle_project_run_stage_all_pages` in `core/job_runner.py`. Fan-out: 1 parent
+row + N child rows (one per page with dirty stages); parent progress bar ticks
+0 → N pages. Tests in `tests/test_project_fanout.py`. Commit predates 2026-05-15.
+
+**awaiting_review gate:** `_handle_build_package` parks in `awaiting_review` when
+any proof-range page lacks a clean `text_review` row. `_check_awaiting_review`
+loop re-queues on the next poll after all pages are reviewed. Persists across
+restarts (DB row IS the queue). Tests in `tests/test_awaiting_review.py`.
+`GET /api/data/projects/{id}/review-status` returns `unreviewed_count` +
+`awaiting_review_job_id`. Tests in `tests/test_project_review_status.py`.
+
+**M5 hi-fi UI components:** `Badge`, `Collapsible`, `Popover` shadcn wrappers;
+`AwaitingReviewBanner` redesign; `OpenTasksBell` in `App.tsx` (1 s polling,
+per-project scope); `JobsPage` Badge upgrade. Commits `cb29f44`, `e0cad9f`,
+`49e8983`, `409a69d`.
+
+**Project-level API routes (2026-05-15):** `POST /api/data/projects/{id}/run-dirty`
+and `POST /api/data/projects/{id}/build-package` added to the data router. Both
+return 202 `{job_id, status}`. `run-dirty` accepts optional `?stage_filter=`
+query param. Tests in `tests/test_project_action_routes.py`. Commit `322b789`.
+
+**RunAllDirtyPanel (2026-05-15):** "Run all dirty stages" button added to
+`ProjectConfigurePage` above `RunPipelinePanel`. POSTs to
+`/api/data/projects/{id}/run-dirty`; shows inline SSE progress; button disabled
+while pending. Tests in `frontend/src/pages/ProjectConfigurePage.test.tsx`.
+Commit `6c112b7`.
