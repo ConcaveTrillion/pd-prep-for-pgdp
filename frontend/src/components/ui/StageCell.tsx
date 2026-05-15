@@ -33,7 +33,7 @@ export function StageCell({
       )}
     >
       <span className={cn("h-2.5 w-2.5 rounded-full", dotClass[status])} />
-      <span className="text-xs text-ink-3 leading-tight">{stage}</span>
+      <span className="text-xs2 text-ink-3 leading-tight">{stage}</span>
     </div>
   );
 }

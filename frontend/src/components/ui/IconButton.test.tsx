@@ -27,6 +27,6 @@ describe("IconButton", () => {
       </IconButton>,
     );
     const btn = screen.getByTestId("ib");
-    expect(btn.className).toContain("bg-red-500");
+    expect(btn.className).toContain("bg-status-error");
   });
 });

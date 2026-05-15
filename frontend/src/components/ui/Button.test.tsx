@@ -66,7 +66,7 @@ describe("Button", () => {
       </Button>,
     );
     const btn = screen.getByTestId("btn");
-    expect(btn.className).toContain("bg-amber-500");
+    expect(btn.className).toContain("bg-brand");
   });
 
   it("applies danger variant classes", () => {
@@ -76,7 +76,7 @@ describe("Button", () => {
       </Button>,
     );
     const btn = screen.getByTestId("btn");
-    expect(btn.className).toContain("bg-red-500");
+    expect(btn.className).toContain("bg-status-error");
   });
 
   it("applies default size classes", () => {

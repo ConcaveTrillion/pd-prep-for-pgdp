@@ -14,8 +14,8 @@ const buttonVariants = cva(
           "border border-border-2 bg-transparent text-ink-1 hover:bg-bg-raised",
         ghost: "text-ink-1 hover:bg-bg-raised",
         link: "text-ink-1 underline-offset-4 hover:underline",
-        amber: "bg-amber-500 text-slate-900 hover:bg-amber-600",
-        danger: "bg-red-500 text-white hover:bg-red-600",
+        amber: "bg-brand text-brand-ink hover:bg-brand/90",
+        danger: "bg-status-error text-accent-ink hover:bg-status-error/90",
       },
       size: {
         default: "h-9 px-4 py-2",
