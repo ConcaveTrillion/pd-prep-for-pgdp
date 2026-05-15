@@ -89,12 +89,7 @@ def test_blank_and_split_helpers() -> None:
 def test_compute_prefix_basic_numbering() -> None:
     """Spec 01 implementation reference test.
 
-    The spec's `range(start, min(idx0, end+1))` loop is empty when
-    idx0 == start, so the very first frontmatter page resolves to "f000"
-    even though `frontmatter_page_nbr_start=1`. This matches the spec's
-    Python verbatim; if the intent was "f001" the spec needs to swap to
-    `range(start, min(idx0+1, end+2))`. Test asserts current behavior so a
-    future fix shows up as an intentional change.
+    First frontmatter page should be f001, not f000. Bodymatter starts at p000.
     """
     proj = ProjectConfig(
         book_name="X",
@@ -109,8 +104,8 @@ def test_compute_prefix_basic_numbering() -> None:
         bodymatter_page_nbr_start=1,
     )
     pages_by_idx = {i: _page(i) for i in range(10, 31)}
-    assert compute_prefix(10, proj, pages_by_idx) == "f000"
-    assert compute_prefix(14, proj, pages_by_idx) == "f004"
+    assert compute_prefix(10, proj, pages_by_idx) == "f001"
+    assert compute_prefix(14, proj, pages_by_idx) == "f005"
     assert compute_prefix(15, proj, pages_by_idx) == "p000"
     assert compute_prefix(5, proj, pages_by_idx) is None
 

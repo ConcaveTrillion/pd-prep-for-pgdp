@@ -83,9 +83,9 @@ async def test_assign_prefixes_writes_frontmatter_and_bodymatter(db: SqliteDatab
 
     pages, _, _ = await db.list_pages(project.id, None, 100)
     by_idx = {p.idx0: p for p in pages}
-    # Spec-01 implementation: first frontmatter page is f000.
-    assert by_idx[0].prefix == "f000"
-    assert by_idx[1].prefix == "f001"
+    # Fixed: first frontmatter page is f001.
+    assert by_idx[0].prefix == "f001"
+    assert by_idx[1].prefix == "f002"
     assert by_idx[2].prefix == "p000"
     assert by_idx[3].prefix == "p001"
     assert by_idx[4].prefix == "p002"
