@@ -12,6 +12,8 @@ import { api, getAuthToken, setAuthToken } from "./api/client";
 import type { components } from "./api/types.gen";
 import { ProfileDropdown } from "./components/ProfileDropdown";
 import { ServerInfoFooter } from "./components/ServerInfoFooter";
+import { AppShell } from "./components/shell/AppShell";
+import { TopNav } from "./components/shell/TopNav";
 
 type ReviewStatusResponse = components["schemas"]["ReviewStatusResponse"];
 import { JobsPage } from "./pages/JobsPage";
@@ -25,28 +27,21 @@ import { TextReviewPage } from "./pages/TextReviewPage";
 
 export default function App() {
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <AppShell
+      header={
+        <TopNav
+          rightSlot={
+            <>
+              <OpenTasksBell />
+              <AuthBadge />
+            </>
+          }
+        />
+      }
+      footer={<ServerInfoFooter />}
+    >
       <AuthGuard />
-      <header className="border-b bg-white">
-        <nav className="mx-auto flex max-w-7xl items-center gap-6 px-4 py-3 text-sm">
-          <Link to="/" className="font-semibold">
-            pgdp-prep
-          </Link>
-          <Link to="/" className="text-slate-600 hover:text-slate-900">
-            Projects
-          </Link>
-          <Link to="/jobs" className="text-slate-600 hover:text-slate-900">
-            Jobs
-          </Link>
-          <Link to="/settings" className="text-slate-600 hover:text-slate-900">
-            Settings
-          </Link>
-          <OpenTasksBell />
-          <AuthBadge />
-        </nav>
-      </header>
-
-      <main className="mx-auto max-w-7xl p-4">
+      <div className="mx-auto max-w-7xl p-4">
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/" element={<ProjectListPage />} />
@@ -69,10 +64,8 @@ export default function App() {
           />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
-      </main>
-
-      <ServerInfoFooter />
-    </div>
+      </div>
+    </AppShell>
   );
 }
 
@@ -104,7 +97,7 @@ function OpenTasksBell() {
   return (
     <Link
       to={`/projects/${projectId}/review`}
-      className="relative ml-auto flex items-center text-slate-600 hover:text-slate-900"
+      className="relative flex items-center text-slate-600 hover:text-slate-900"
       title={`${count} page${count === 1 ? "" : "s"} awaiting review`}
       aria-label={`Open tasks: ${count} page${count === 1 ? "" : "s"} awaiting review`}
     >
