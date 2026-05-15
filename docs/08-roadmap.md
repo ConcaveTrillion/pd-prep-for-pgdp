@@ -18,6 +18,8 @@ under "Deferred — remote / cloud mode" at the bottom.
 - §13 search across pages — shipped (#76).
 - §10 Konva rotate — shipped (#100); flip is **blocked on CT design**
   (see P2 below).
+- §P0.1 stale Re-process button — removed (#110, 2026-05-15).
+- §P0.2 Download Package UI — shipped (#111, 2026-05-15).
 
 ---
 
@@ -25,35 +27,6 @@ under "Deferred — remote / cloud mode" at the bottom.
 
 Items that prevent a user from completing a real book end-to-end in
 `make run` today.
-
-### P0.1. RunPipelinePanel is stale — submits to deleted `POST /api/gpu/jobs`
-
-`frontend/src/pages/ProjectConfigurePage.tsx` line ~696 (`STEPS`
-constant) and `RunPipelinePanel` (~725) submit `batch_process_pages`,
-`batch_ocr`, `batch_text_postprocess`,
-`batch_extract_illustrations`, `build_package` JobTypes to
-`POST /api/gpu/jobs`.
-
-After M6 (2026-05-15) `JobType.batch_*` is gone and `POST /api/gpu/jobs`
-returns 405. The 5-row "Run pipeline" panel in the Pipeline tab is a
-dead UI surface — pressing Run on any of the first four rows fails
-silently.
-
-**Pass criterion:** in `make run`, on the Pipeline tab, every Run
-button either (a) works end-to-end, or (b) is removed. The
-`build_package` row in particular needs to submit to
-`POST /api/data/projects/{id}/build-package` (which exists and is
-tested).
-
-### P0.2. No "Download package" UI
-
-After `build_package` completes, there is no UI affordance to
-download the resulting zip. The `GET /api/data/projects/{id}/assets/download-url`
-endpoint exists but no page links to it.
-
-**Pass criterion:** in `make run`, after `build_package` completes, the
-user sees a "Download package" link / button that triggers the
-download in the browser.
 
 ### P0.3. Folder upload (zip-only ingest blocks Internet Archive workflow)
 

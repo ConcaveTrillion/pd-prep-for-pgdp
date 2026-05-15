@@ -862,3 +862,28 @@ query param. Tests in `tests/test_project_action_routes.py`. Commit `322b789`.
 `/api/data/projects/{id}/run-dirty`; shows inline SSE progress; button disabled
 while pending. Tests in `frontend/src/pages/ProjectConfigurePage.test.tsx`.
 Commit `6c112b7`.
+
+---
+
+## §P0.1 — Remove stale "Re-process selected" button (2026-05-15)
+
+`BulkActions` in `ProjectConfigurePage.tsx` had a `reprocess` mutation
+calling `POST /api/gpu/jobs` with `job_type: "batch_process_pages"`. The
+`JobType.batch_*` enum values and `POST /api/gpu/jobs` route were deleted in
+M6; the button silently failed (405). Removed the mutation and the button
+entirely. Per-page re-runs go through the PageWorkbench stage controls.
+
+Tests in `frontend/src/pages/ProjectConfigurePage.test.tsx`.
+GH issue #110. Commit `b4a6a6c`.
+
+## §P0.2 — Download Package UI (2026-05-15)
+
+After `build_package` completes, `RunPipelinePanel` now shows a "Download
+package" link. `JobProgressInline` gained an `onComplete` callback;
+`RunPipelinePanel` tracks the completed job id and fetches a presigned URL
+from `GET /api/data/projects/{id}/assets/download-url?key=<key>` where key
+is `projects/{id}/for_zip/{book_name}.zip`. In local mode the URL resolves
+to `/cdn/<key>` served by FastAPI's StaticFiles mount.
+
+Tests in `frontend/src/pages/ProjectConfigurePage.test.tsx`.
+GH issue #111. Commit `b4a6a6c`.
