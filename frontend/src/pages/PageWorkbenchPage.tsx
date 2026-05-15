@@ -431,6 +431,8 @@ export function PageWorkbenchPage() {
           imageKey={`/cdn/${page.data.thumbnail_key ?? ""}`}
           page={page.data}
           editMode={editMode}
+          draftAngle={draftAngle}
+          onRotate={(a) => setDraftAngle(a)}
           onDrawSplit={handleAddSplit}
           onDrawRegion={handleAddRegion}
           onUpdateSplit={handleUpdateSplit}
@@ -512,6 +514,8 @@ function CanvasViewer({
   imageKey,
   page,
   editMode,
+  draftAngle,
+  onRotate,
   onDrawSplit,
   onDrawRegion,
   onUpdateSplit,
@@ -521,6 +525,8 @@ function CanvasViewer({
   imageKey: string;
   page: PageRecord;
   editMode: EditMode;
+  draftAngle: number;
+  onRotate: (angle: number) => void;
   onDrawSplit: (r: { L: number; R: number; T: number; B: number }) => void;
   onDrawRegion: (r: { L: number; R: number; T: number; B: number }) => void;
   onUpdateSplit: (
@@ -541,6 +547,7 @@ function CanvasViewer({
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
+  const imageRef = useRef<Konva.Image>(null);
   const rectRefs = useRef<Map<string, Konva.Rect>>(new Map());
   const [containerW, setContainerW] = useState(800);
   const [img, setImg] = useState<HTMLImageElement | null>(null);
@@ -577,24 +584,47 @@ function CanvasViewer({
 
   const scale = img ? containerW / img.naturalWidth : 1;
   const stageH = img ? Math.round(img.naturalHeight * scale) : 600;
-  const drawingEnabled = editMode !== "view";
+  // Drawing (marquee) must be disabled in rotate mode — the Konva transformer
+  // handles interaction there, and mousedown/up for drawing would interfere.
+  const drawingEnabled = editMode !== "view" && editMode !== "rotate";
 
-  // Attach the Transformer to whatever Rect is selected.
+  // Attach the Transformer to the image (rotate mode) or to the selected rect
+  // (split/illustration modes). Both cases are handled in one effect so that
+  // the rotate path can reliably override whatever rect was previously attached.
   useEffect(() => {
     const tr = transformerRef.current;
     if (!tr) return;
-    if (!selection) {
-      tr.nodes([]);
+    if (editMode === "rotate" && imageRef.current) {
+      tr.nodes([imageRef.current]);
+      tr.rotateEnabled(true);
+      tr.resizeEnabled(false);
+      tr.borderEnabled(true);
       tr.getLayer()?.batchDraw();
-      return;
-    }
-    const key = selectionKey(selection);
-    const node = rectRefs.current.get(key);
-    if (node) {
-      tr.nodes([node]);
+    } else {
+      // Returning from rotate mode (or normal rect-select behaviour).
+      const key = selection ? selectionKey(selection) : null;
+      const node = key ? rectRefs.current.get(key) : null;
+      tr.nodes(node ? [node] : []);
+      tr.rotateEnabled(false);
+      tr.resizeEnabled(true);
+      tr.borderEnabled(true);
       tr.getLayer()?.batchDraw();
     }
-  }, [selection, page.splits, page.illustration_regions]);
+  }, [editMode, selection, page.splits, page.illustration_regions]);
+
+  // Apply draftAngle to the image node imperatively so the canvas reflects the
+  // current angle before the user clicks Apply.
+  useEffect(() => {
+    const node = imageRef.current;
+    if (!node) return;
+    if (editMode === "rotate") {
+      node.rotation(draftAngle);
+    } else {
+      // Reset visual rotation when leaving rotate mode.
+      node.rotation(0);
+    }
+    node.getLayer()?.batchDraw();
+  }, [editMode, draftAngle]);
 
   // Click-on-empty-stage clears the selection. The Transformer + the rects
   // themselves stop the click via stopPropagation.
@@ -663,7 +693,12 @@ function CanvasViewer({
           style={{ cursor: drawingEnabled ? "crosshair" : "default" }}
         >
           <Layer>
-            <KonvaImage image={img} scaleX={scale} scaleY={scale} />
+            <KonvaImage
+              ref={imageRef}
+              image={img}
+              scaleX={scale}
+              scaleY={scale}
+            />
             {(page.illustration_regions as IllustrationRegion[]).map(
               (region) => {
                 const key = `region-${region.index}`;
@@ -767,8 +802,22 @@ function CanvasViewer({
               flipEnabled={false}
               boundBoxFunc={(oldBox, newBox) => {
                 // Constrain to a sensible minimum.
+                // In rotate mode resizing is disabled so this only fires for rects.
                 if (newBox.width < 8 || newBox.height < 8) return oldBox;
                 return newBox;
+              }}
+              onTransform={() => {
+                if (editMode === "rotate" && imageRef.current) {
+                  const rawAngle = imageRef.current.rotation();
+                  // Normalise to ±180°.
+                  const normalised =
+                    rawAngle > 180
+                      ? rawAngle - 360
+                      : rawAngle < -180
+                        ? rawAngle + 360
+                        : rawAngle;
+                  onRotate(Number(normalised.toFixed(1)));
+                }
               }}
             />
             {dragRect && (

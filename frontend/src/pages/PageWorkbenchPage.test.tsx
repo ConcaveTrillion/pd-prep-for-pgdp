@@ -691,3 +691,46 @@ describe("issue #102 — no snap-to-grid", () => {
     await screen.findByText(/-3\.5/);
   });
 });
+
+// ─── §10: CanvasViewer renders without error in rotate mode ─────────────────
+//
+// Note: in jsdom, HTMLImageElement.onload never fires (no real network), so
+// CanvasViewer's `img` state stays null and the Konva <Stage> is never
+// mounted — the fallback "Loading image…" div renders instead.  These tests
+// therefore verify the *parent* component remains stable (no crash, no
+// unmount) rather than inspecting Konva internals, which are unreachable in
+// the unit-test environment.  The imageRef-guarded effects are exercised by
+// the TypeScript compiler + the null-check in the effect body.
+
+describe("CanvasViewer — rotate mode rendering", () => {
+  it("entering rotate mode does not crash the page — toolbar controls appear", async () => {
+    // Verifies that the new draftAngle / onRotate props on CanvasViewer do not
+    // cause an unhandled error when the component transitions to rotate mode.
+    setupBasicHandlers();
+    renderWithProviders(<PageWorkbenchPage />);
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /^rotate$/i }));
+
+    // Rotate toolbar controls must appear without any crash
+    await screen.findByRole("button", { name: /^apply$/i });
+    expect(screen.getByRole("button", { name: /^reset$/i })).toBeTruthy();
+  });
+
+  it("exits rotate mode cleanly when Cancel is clicked — page remains stable", async () => {
+    setupBasicHandlers();
+    renderWithProviders(<PageWorkbenchPage />);
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /^rotate$/i }));
+    await screen.findByRole("button", { name: /^cancel$/i });
+
+    await user.click(screen.getByRole("button", { name: /^cancel$/i }));
+
+    // Rotate toolbar should be gone; Mode toolbar must still be visible
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /^apply$/i })).toBeNull();
+    });
+    expect(screen.getByRole("button", { name: /^rotate$/i })).toBeTruthy();
+  });
+});
