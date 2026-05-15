@@ -11,9 +11,16 @@
  * - Switching to Pages tab shows page-list content.
  * - Switching to Settings tab shows settings content.
  * - Tab state is reflected in URL search params.
+ * - Drag-and-drop page reordering via HTML5 native D&D.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  render,
+  screen,
+  waitFor,
+  fireEvent,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import type { ReactElement } from "react";
@@ -668,5 +675,176 @@ describe("ProjectConfigurePage — RunPipelinePanel P0.2 (Download package)", ()
     expect(
       screen.queryByTestId("download-package-link"),
     ).not.toBeInTheDocument();
+  });
+});
+
+// ─── Drag-and-drop page reordering ────────────────────────────────────────
+
+/** Three-page response for drag-and-drop tests. */
+const makePageRecord = (idx0: number) => ({
+  project_id: "proj1",
+  idx0,
+  prefix: String(idx0 + 1).padStart(4, "0"),
+  source_stem: `scan_${String(idx0 + 1).padStart(4, "0")}`,
+  ignore: false,
+  page_type: "normal",
+  alignment: "default",
+  config_overrides: {
+    initial_crop: null,
+    white_space_additional: null,
+    threshold_level: null,
+    fuzzy_pct: null,
+    pixel_count_columns: null,
+    pixel_count_rows: null,
+    skip_auto_deskew: null,
+    deskew_before_crop: null,
+    deskew_after_crop: null,
+    do_morph: null,
+    skip_denoise: null,
+    use_ocr_bbox_edge: null,
+    rotated_standard: null,
+    single_dimension_rescale: null,
+    manual_deskew_angle: null,
+  },
+  splits: [],
+  illustration_regions: [],
+  source_key: null,
+  thumbnail_key: null,
+  processed_image_key: null,
+  ocr_image_key: null,
+  processing_status: "complete",
+  processing_job_id: null,
+  processing_error: null,
+  last_processed_at: null,
+  outputs: [],
+  parent_page_id: null,
+  source_crop_bbox: null,
+  split_index: null,
+  split_at_stage: null,
+  split_suffix: null,
+  reading_order: idx0,
+});
+
+const threePages = [makePageRecord(0), makePageRecord(1), makePageRecord(2)];
+
+const threePagesResponse = {
+  pages: threePages,
+  total: 3,
+  next_cursor: null,
+};
+
+function setupDragHandlers() {
+  server.use(
+    http.get("/api/data/projects/proj1", () => HttpResponse.json(baseProject)),
+    http.get("/api/data/projects/proj1/pages", () =>
+      HttpResponse.json(threePagesResponse),
+    ),
+    http.get("/api/gpu/jobs", () => HttpResponse.json([])),
+    http.get("/api/data/jobs", () => HttpResponse.json([])),
+    http.get("/api/data/projects/proj1/review-status", () =>
+      HttpResponse.json({ unreviewed_count: 0, awaiting_review_job_id: null }),
+    ),
+  );
+}
+
+describe("ProjectConfigurePage — drag-and-drop page reordering", () => {
+  it("each page row has a drag-handle element", async () => {
+    setupDragHandlers();
+    renderWithProviders(<ProjectConfigurePage />, "/projects/proj1?tab=pages");
+
+    // Wait for rows to appear
+    await waitFor(() => {
+      expect(screen.getByTestId("page-row-0")).toBeInTheDocument();
+    });
+
+    // All three rows have a drag handle
+    const handles = screen.getAllByTestId("drag-handle");
+    expect(handles).toHaveLength(3);
+  });
+
+  it("calls PATCH reorder endpoint after dragstart on row 0 and drop on row 2", async () => {
+    setupDragHandlers();
+
+    let patchedBody: unknown = null;
+    server.use(
+      http.patch(
+        "/api/data/projects/proj1/pages/reorder",
+        async ({ request }) => {
+          patchedBody = await request.json();
+          return HttpResponse.json(
+            { page_ids: ["0001", "0002", "0000"] },
+            { status: 200 },
+          );
+        },
+      ),
+    );
+
+    renderWithProviders(<ProjectConfigurePage />, "/projects/proj1?tab=pages");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("page-row-0")).toBeInTheDocument();
+    });
+
+    const row0 = screen.getByTestId("page-row-0");
+    const row2 = screen.getByTestId("page-row-2");
+
+    // Simulate drag from row 0 to row 2.
+    fireEvent.dragStart(row0);
+    fireEvent.dragOver(row2);
+    fireEvent.drop(row2);
+
+    await waitFor(() => {
+      expect(patchedBody).toEqual({ page_ids: ["0001", "0002", "0000"] });
+    });
+  });
+
+  it("reverts page list to original order on server error", async () => {
+    setupDragHandlers();
+
+    server.use(
+      http.patch("/api/data/projects/proj1/pages/reorder", () => {
+        return HttpResponse.json(
+          { detail: "Internal server error" },
+          { status: 500 },
+        );
+      }),
+    );
+
+    // Spy on console.error to suppress noise in test output.
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    renderWithProviders(<ProjectConfigurePage />, "/projects/proj1?tab=pages");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("page-row-0")).toBeInTheDocument();
+    });
+
+    const row0 = screen.getByTestId("page-row-0");
+    const row2 = screen.getByTestId("page-row-2");
+
+    // Simulate drag.
+    fireEvent.dragStart(row0);
+    fireEvent.dragOver(row2);
+    fireEvent.drop(row2);
+
+    // After optimistic reorder, row 0's test-id changes momentarily.
+    // After the error, the list should revert — row 0 (idx0=0) is back.
+    await waitFor(() => {
+      // The original row with idx0=0 should be back in the DOM as "page-row-0".
+      expect(screen.getByTestId("page-row-0")).toBeInTheDocument();
+      expect(screen.getByTestId("page-row-1")).toBeInTheDocument();
+      expect(screen.getByTestId("page-row-2")).toBeInTheDocument();
+    });
+
+    // Verify they appear in original order by checking text content order.
+    const rows = screen.getAllByTestId(/^page-row-\d+$/);
+    // The rows should represent pages in idx0 order: 0, 1, 2.
+    expect(rows[0]).toHaveAttribute("data-testid", "page-row-0");
+    expect(rows[1]).toHaveAttribute("data-testid", "page-row-1");
+    expect(rows[2]).toHaveAttribute("data-testid", "page-row-2");
+
+    consoleErrorSpy.mockRestore();
   });
 });

@@ -4,7 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { DiskCostBanner } from "../components/DiskCostBanner";
@@ -26,6 +26,7 @@ import { useJobProgress } from "../hooks/useJobProgress";
 import type { components } from "../api/types.gen";
 
 type ListPagesResponse = components["schemas"]["ListPagesResponse"];
+type PageRecord = components["schemas"]["PageRecord"];
 type Project = components["schemas"]["Project"];
 type ProjectConfig = components["schemas"]["ProjectConfig"];
 type UpdatePageRequest = components["schemas"]["UpdatePageRequest"];
@@ -62,6 +63,8 @@ export function ProjectConfigurePage() {
       return prev;
     });
   };
+
+  const queryClient = useQueryClient();
 
   const project = useQuery({
     queryKey: ["project", projectId],
@@ -108,6 +111,15 @@ export function ProjectConfigurePage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [showSplitParents, setShowSplitParents] = useState(false);
 
+  // ── Drag-and-drop page reordering ────────────────────────────────────────
+  // Optimistic local order: null means "use server order" (visiblePages).
+  const [localPageOrder, setLocalPageOrder] = useState<PageRecord[] | null>(
+    null,
+  );
+  const dragSrcIndex = useRef<number | null>(null);
+  // Snapshot taken at dragstart so we can revert on error.
+  const dragOrderSnapshot = useRef<PageRecord[] | null>(null);
+
   // Compute the set of page_ids that are referenced as parent_page_id by
   // at least one split child. These are "split parents" hidden by default.
   const splitParentIds = useMemo(() => {
@@ -129,6 +141,28 @@ export function ProjectConfigurePage() {
           ),
     [allPages, showSplitParents, splitParentIds],
   );
+
+  const reorder = useMutation({
+    mutationFn: (pageIds: string[]) =>
+      api.patch(`/api/data/projects/${projectId}/pages/reorder`, {
+        page_ids: pageIds,
+      }),
+    onSuccess: () => {
+      // Clear local optimistic order so the invalidated server data takes over.
+      setLocalPageOrder(null);
+      queryClient.invalidateQueries({ queryKey: ["pages", projectId] });
+    },
+    onError: () => {
+      // Revert to the snapshot captured at drag-start.
+      setLocalPageOrder(dragOrderSnapshot.current);
+    },
+    onSettled: () => {
+      dragOrderSnapshot.current = null;
+    },
+  });
+
+  // Derive displayed pages: localPageOrder takes priority while optimistic.
+  const displayedPages = localPageOrder ?? visiblePages;
 
   if (project.isLoading || pages.isLoading) {
     return <p className="text-slate-500">Loading…</p>;
@@ -297,17 +331,49 @@ export function ProjectConfigurePage() {
           <div className="flex">
             <div className="flex-1 overflow-auto">
               <Card className="m-4" data-testid="pages-card">
-                {visiblePages.length === 0 && (
+                {displayedPages.length === 0 && (
                   <p className="px-4 py-6 text-sm text-ink-3 text-center">
                     No pages yet.
                   </p>
                 )}
-                {visiblePages.map((page) => (
+                {displayedPages.map((page, listIndex) => (
                   <PageRow
                     key={page.idx0}
                     page={page}
                     isSelected={page.idx0 === drawerIdx0}
                     onSelect={openDrawer}
+                    draggable
+                    onDragStart={(e) => {
+                      dragSrcIndex.current = listIndex;
+                      // Capture a snapshot before any optimistic update.
+                      dragOrderSnapshot.current = displayedPages.slice();
+                      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const srcIdx = dragSrcIndex.current;
+                      if (srcIdx === null || srcIdx === listIndex) return;
+
+                      // Build the reordered list optimistically.
+                      const reordered = displayedPages.slice();
+                      const [moved] = reordered.splice(srcIdx, 1);
+                      reordered.splice(listIndex, 0, moved);
+                      setLocalPageOrder(reordered);
+                      dragSrcIndex.current = null;
+
+                      // Tell the server the new order using zero-padded idx0.
+                      const pageIds = reordered.map((p) =>
+                        String(p.idx0).padStart(4, "0"),
+                      );
+                      reorder.mutate(pageIds);
+                    }}
+                    onDragEnd={() => {
+                      dragSrcIndex.current = null;
+                    }}
                   />
                 ))}
               </Card>
