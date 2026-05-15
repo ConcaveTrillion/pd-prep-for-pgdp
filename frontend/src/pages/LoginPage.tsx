@@ -16,6 +16,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { setAuthToken } from "../api/client";
+import { Card } from "../components/ui/Card";
 
 const PKCE_VERIFIER_KEY = "pgdp.pkce_verifier";
 const PKCE_RETURN_TO_KEY = "pgdp.return_to";
@@ -72,16 +73,24 @@ export function LoginPage() {
   }, [navigate]);
 
   return (
-    <section className="mx-auto max-w-md space-y-3 rounded border bg-white p-6 text-center">
-      <h1 className="text-lg font-semibold">Sign in</h1>
-      {error ? (
-        <p className="text-sm text-rose-600">{error}</p>
-      ) : (
-        <p className="text-sm text-slate-500">
-          Redirecting to your identity provider…
-        </p>
-      )}
-    </section>
+    <div className="flex min-h-[60vh] items-center justify-center px-4">
+      <Card className="w-full max-w-md space-y-4 p-8 text-center">
+        {/* Brand glyph — matches TopNav left cluster */}
+        <div className="flex justify-center">
+          <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 text-base font-bold text-slate-900">
+            p
+          </span>
+        </div>
+        <h1 className="text-lg font-semibold text-ink-1">Sign in</h1>
+        {error ? (
+          <p className="text-sm text-status-error">{error}</p>
+        ) : (
+          <p className="text-sm text-ink-3">
+            Redirecting to your identity provider…
+          </p>
+        )}
+      </Card>
+    </div>
   );
 }
 
