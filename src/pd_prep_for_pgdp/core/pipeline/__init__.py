@@ -10,6 +10,5 @@ every shape.
 """
 
 from .blank_proof import create_blank_proof
-from .process_page import process_page_cpu
 
-__all__ = ["create_blank_proof", "process_page_cpu"]
+__all__ = ["create_blank_proof"]

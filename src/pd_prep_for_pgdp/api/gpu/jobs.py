@@ -1,4 +1,4 @@
-"""/api/gpu/jobs/* — submit, poll, cancel, SSE-stream batch jobs."""
+"""/api/gpu/jobs/* — poll, cancel, SSE-stream jobs."""
 
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ from sse_starlette.sse import EventSourceResponse
 from ...adapters.auth import UserContext
 from ...adapters.database import IDatabase
 from ...core.job_events import JobEventBroker
-from ...core.models import Job, JobStatus, JobType
+from ...core.models import Job, JobStatus
 from ..dependencies import get_database, get_job_events, get_user
-from .schemas import BatchJobRequest, BatchJobResponse, RetryJobRequest
+from .schemas import BatchJobResponse, RetryJobRequest
 
 router = APIRouter(tags=["gpu"])
 
@@ -27,46 +27,6 @@ async def list_jobs(
 ) -> list[Job]:
     """List the most recent jobs for the current user (newest first)."""
     return await db.list_recent_jobs(user.user_id, limit=limit)
-
-
-@router.post("/jobs", response_model=BatchJobResponse, status_code=202, operation_id="submit_batch_job")
-async def submit_batch_job(
-    body: BatchJobRequest,
-    user: UserContext = Depends(get_user),
-    db: IDatabase = Depends(get_database),
-) -> BatchJobResponse:
-    project = await db.get_project(body.project_id)
-    if project is None or project.owner_id != user.user_id:
-        raise HTTPException(404, "project not found")
-
-    from ...settings import Settings
-
-    settings = Settings()  # tolerable: cheap; bootstrap holds the canonical instance
-    interval = settings.dispatch_interval_seconds
-    dispatch_mode = "scheduled" if interval > 0 else "immediate"
-    next_dispatch = datetime.now(UTC) + timedelta(seconds=interval) if interval > 0 else None
-
-    payload: dict = {}
-    if body.page_idxs:
-        payload["page_idxs"] = body.page_idxs
-
-    job = Job(
-        id=uuid.uuid4().hex,
-        project_id=body.project_id,
-        owner_id=user.user_id,
-        type=JobType[body.job_type],
-        status=JobStatus.scheduled if interval > 0 else JobStatus.queued,
-        next_dispatch_at=next_dispatch,
-        payload=payload,
-    )
-    await db.put_job(job)
-    return BatchJobResponse(
-        job_id=job.id,
-        status=job.status,
-        estimated_pages=len(body.page_idxs) if body.page_idxs else 0,
-        dispatch_mode=dispatch_mode,
-        next_dispatch_at=next_dispatch,
-    )
 
 
 @router.get("/jobs/{job_id}", response_model=Job, operation_id="get_gpu_job")

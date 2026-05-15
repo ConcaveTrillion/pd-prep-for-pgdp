@@ -24,8 +24,6 @@ from .adapters.auth.none_ import NoneAuth
 from .adapters.database.base import IDatabase
 from .adapters.database.sqlite import SqliteDatabase
 from .adapters.gpu.base import GPUBackend
-from .adapters.gpu.cpu import CpuBackend
-from .adapters.gpu.local import LocalBackend
 from .adapters.gpu.modal_backend import ModalBackend
 from .adapters.gpu.shared_container import SharedContainerBackend
 from .adapters.storage.base import IStorage
@@ -101,6 +99,28 @@ def _autodetect_gpu_backend() -> str:
     return "cpu"
 
 
+class _NoOpGPUBackend:
+    """Minimal stub satisfying the GPUBackend Protocol for local/cpu/mps mode.
+
+    M6 removed CpuBackend and LocalBackend. Per-page stage execution now
+    goes through the per-stage endpoint (POST .../stages/{id}/run) rather
+    than the old process-page / run-ocr-page routes. This stub keeps
+    app.state.gpu_backend non-None so healthz and the remaining
+    illustration route stubs can read the name without crashing.
+    """
+
+    name = "cpu"  # type: ignore[assignment]  # matches Protocol Literal
+
+    async def process_page(self, req: Any) -> Any:  # pragma: no cover
+        raise NotImplementedError("process_page removed in M6 — use per-stage endpoint")
+
+    async def run_ocr(self, req: Any) -> Any:  # pragma: no cover
+        raise NotImplementedError("run_ocr removed in M6 — use per-stage endpoint")
+
+    async def run_batch(self, items: list, *, progress_cb: Any = None) -> list:  # pragma: no cover
+        raise NotImplementedError("run_batch removed in M6 — use per-stage endpoint")
+
+
 def build_gpu_backend(
     settings: Settings,
     *,
@@ -111,18 +131,12 @@ def build_gpu_backend(
     chosen = settings.gpu_backend or _autodetect_gpu_backend()
     log.info("Selected GPU backend: %s", chosen)
 
-    if chosen == "local":
-        # LocalBackend subclasses CpuBackend (DocTR/PyTorch auto-uses CUDA);
-        # adapters wire identically. data_root is injected so process_page
-        # can route through run_stage (M5 #91).
-        return LocalBackend(
-            storage=storage, database=database, executor=executor, data_root=settings.data_root
-        )
-    if chosen in {"cpu", "mps"}:
-        # MPS is wired into DocTR automatically when torch sees Apple Silicon;
-        # the rest of the pipeline runs on CPU. We treat them as the same
-        # backend for adapter-selection purposes.
-        return CpuBackend(storage=storage, database=database, executor=executor, data_root=settings.data_root)
+    if chosen in {"local", "cpu", "mps"}:
+        # M6: CpuBackend / LocalBackend removed. Per-page stages run via the
+        # per-stage endpoint (POST .../stages/{id}/run). Return a no-op stub
+        # so the remaining gpu-router stubs (suggest-splits, etc.) and healthz
+        # can still read the backend name without crashing.
+        return _NoOpGPUBackend()  # type: ignore[return-value]
     if chosen == "modal":
         if not (settings.modal_token_id and settings.modal_token_secret):
             raise RuntimeError("MODAL_TOKEN_ID + MODAL_TOKEN_SECRET required when gpu_backend=modal")

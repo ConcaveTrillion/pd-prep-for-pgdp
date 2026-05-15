@@ -13,7 +13,7 @@ import pd_prep_for_pgdp.core.pipeline.stage_dag as _stage_dag
 
 from ...adapters.auth import UserContext
 from ...adapters.database import IDatabase
-from ...adapters.gpu.cpu import load_words_from_storage, words_key_for
+from ...adapters.gpu.base import load_words_from_storage, words_key_for
 from ...adapters.storage import IStorage
 from ...core.models import (
     PAGE_STAGE_IDS,

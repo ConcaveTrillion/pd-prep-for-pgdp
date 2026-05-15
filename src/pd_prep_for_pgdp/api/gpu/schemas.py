@@ -7,23 +7,12 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from ...adapters.gpu.base import (
-    OcrPageRequest,
-    OcrPageResponse,
-    ProcessPageRequest,
-    ProcessPageResponse,
-)
 from ...core.models import JobStatus
 
 __all__ = [
-    "BatchJobRequest",
     "BatchJobResponse",
     "IngestRequest",
     "JobResponse",
-    "OcrPageRequest",
-    "OcrPageResponse",
-    "ProcessPageRequest",
-    "ProcessPageResponse",
     "RetryJobRequest",
 ]
 
@@ -37,18 +26,6 @@ class IngestRequest(BaseModel):
 class JobResponse(BaseModel):
     job_id: str
     status: Literal["queued", "running"] = "queued"
-
-
-class BatchJobRequest(BaseModel):
-    project_id: str
-    job_type: Literal[
-        "batch_process_pages",
-        "batch_ocr",
-        "batch_text_postprocess",
-        "batch_extract_illustrations",
-        "build_package",
-    ]
-    page_idxs: list[int] | None = None
 
 
 class BatchJobResponse(BaseModel):
