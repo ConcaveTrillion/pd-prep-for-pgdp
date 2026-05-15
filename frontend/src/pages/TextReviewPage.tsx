@@ -13,6 +13,13 @@ import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { KeyCap } from "../components/ui/KeyCap";
 import { ToggleGroup, ToggleGroupItem } from "../components/ui/ToggleGroup";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/Select";
 import { diffLines } from "../lib/lineDiff";
 import { LineDiffView } from "../lib/LineDiffView";
 import { useUndoWindow } from "../hooks/useUndoWindow";
@@ -38,7 +45,10 @@ export function TextReviewPage() {
   const idx0 = Number(idx0Str);
   const queryClient = useQueryClient();
 
-  const [splitSuffix, setSplitSuffix] = useState<string>("");
+  // Special value "__whole__" represents "whole page" (was previously "").
+  // Radix Select doesn't allow empty string values, so we use this constant.
+  const WHOLE_PAGE_VALUE = "__whole__";
+  const [splitSuffix, setSplitSuffix] = useState<string>(WHOLE_PAGE_VALUE);
   const [text, setText] = useState<string>("");
   const [dirty, setDirty] = useState(false);
   const [activeWordIndex, setActiveWordIndex] = useState<number | null>(null);
@@ -91,10 +101,12 @@ export function TextReviewPage() {
   const text$ = useQuery({
     enabled: !!page.data,
     queryKey: ["page-text", projectId, idx0, splitSuffix],
-    queryFn: () =>
-      api.get<{ text: string; text_key: string; words: OcrWord[] }>(
-        `/api/data/projects/${projectId}/pages/${idx0}/text/${splitSuffix || "_"}`,
-      ),
+    queryFn: () => {
+      const suffix = splitSuffix === WHOLE_PAGE_VALUE ? "_" : splitSuffix;
+      return api.get<{ text: string; text_key: string; words: OcrWord[] }>(
+        `/api/data/projects/${projectId}/pages/${idx0}/text/${suffix}`,
+      );
+    },
   });
 
   useEffect(() => {
@@ -149,11 +161,13 @@ export function TextReviewPage() {
   );
 
   const save = useMutation({
-    mutationFn: () =>
-      api.patch<{ text_key: string }>(
+    mutationFn: () => {
+      const suffix = splitSuffix === WHOLE_PAGE_VALUE ? null : splitSuffix;
+      return api.patch<{ text_key: string }>(
         `/api/data/projects/${projectId}/pages/${idx0}/text`,
-        { split_suffix: splitSuffix || null, text },
-      ),
+        { split_suffix: suffix, text },
+      );
+    },
     onSuccess: () => {
       setDirty(false);
       // Persisting the user's edits ends the "compare against
@@ -173,16 +187,18 @@ export function TextReviewPage() {
   // §undo: DELETE fires immediately. The undo window is opened after the
   // server confirms. If the user undoes, `restoreWords` flips them back.
   const deleteWords = useMutation({
-    mutationFn: (ids: string[]) =>
-      api.delete<DeleteWordsResponse>(
+    mutationFn: (ids: string[]) => {
+      const suffix = splitSuffix === WHOLE_PAGE_VALUE ? null : splitSuffix;
+      return api.delete<DeleteWordsResponse>(
         `/api/data/projects/${projectId}/pages/${idx0}/words`,
         {
           body: {
             word_ids: ids,
-            split_suffix: splitSuffix || null,
+            split_suffix: suffix,
           } satisfies DeleteWordsRequest,
         },
-      ),
+      );
+    },
     onSuccess: (resp) => {
       setText(resp.text);
       setWords(resp.remaining_words ?? []);
@@ -220,14 +236,16 @@ export function TextReviewPage() {
   // §9a: restore soft-deleted words. Calls POST .../words/restore; on
   // success mirrors the canonical server state back into local state.
   const restoreWords = useMutation({
-    mutationFn: (ids: string[]) =>
-      api.post<RestoreWordsResponse>(
+    mutationFn: (ids: string[]) => {
+      const suffix = splitSuffix === WHOLE_PAGE_VALUE ? null : splitSuffix;
+      return api.post<RestoreWordsResponse>(
         `/api/data/projects/${projectId}/pages/${idx0}/words/restore`,
         {
           word_ids: ids,
-          split_suffix: splitSuffix || null,
+          split_suffix: suffix,
         } satisfies RestoreWordsRequest,
-      ),
+      );
+    },
     onSuccess: (resp) => {
       setText(resp.text);
       setWords(resp.remaining_words ?? []);
@@ -429,21 +447,25 @@ export function TextReviewPage() {
         actions={
           <div className="flex items-center gap-2">
             {splits.length > 0 && (
-              <select
-                value={splitSuffix}
-                onChange={(e) => setSplitSuffix(e.target.value)}
-                className="rounded border border-border-2 bg-bg-surface px-2 py-1 text-sm text-ink-1"
-              >
-                <option value="">(whole page)</option>
-                {[...splits]
-                  .sort((a, b) => a.reading_order - b.reading_order)
-                  .map((s) => (
-                    <option key={s.suffix} value={s.suffix}>
-                      {page.data!.prefix}
-                      {s.suffix}
-                    </option>
-                  ))}
-              </select>
+              <Select value={splitSuffix} onValueChange={setSplitSuffix}>
+                <SelectTrigger
+                  aria-label="Split selection"
+                  className="rounded border border-border-2 bg-bg-surface px-2 py-1 text-sm text-ink-1"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={WHOLE_PAGE_VALUE}>(whole page)</SelectItem>
+                  {[...splits]
+                    .sort((a, b) => a.reading_order - b.reading_order)
+                    .map((s) => (
+                      <SelectItem key={s.suffix} value={s.suffix}>
+                        {page.data!.prefix}
+                        {s.suffix}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
             )}
             <Link
               to={`/projects/${projectId}/pages/${Math.max(0, idx0 - 1)}/review`}

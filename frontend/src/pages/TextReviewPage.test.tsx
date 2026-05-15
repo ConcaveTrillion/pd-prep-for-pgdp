@@ -972,4 +972,73 @@ describe("TextReviewPage P2-6 hi-fi layout", () => {
     const kbdElements = hintsRow.querySelectorAll("kbd");
     expect(kbdElements.length).toBeGreaterThan(0);
   });
+
+  it("renders split selector Radix Select when splits exist", async () => {
+    server.use(
+      http.get("/api/data/projects/:projectId/pages/:idx0", ({ params }) =>
+        HttpResponse.json(
+          makePage({
+            project_id: String(params.projectId),
+            idx0: Number(params.idx0),
+            splits: [
+              { suffix: "_a", reading_order: 0 },
+              { suffix: "_b", reading_order: 1 },
+            ] as any,
+          }),
+        ),
+      ),
+      http.get("/api/data/projects/:projectId/pages/:idx0/text/_", () =>
+        HttpResponse.json({
+          text: "hello world\n",
+          text_key: "projects/prj_abc/text/0001.txt",
+          words: [],
+        }),
+      ),
+    );
+
+    renderAtRoute(<TextReviewPage />, "/projects/prj_abc/pages/0/review");
+
+    // Wait for page to load and splits to be available.
+    // The split selector should render as a Radix Select trigger (button).
+    await waitFor(() => {
+      // Look for a button with aria-label "Split selection"
+      const splitTrigger = document.querySelector(
+        'button[aria-label="Split selection"]',
+      ) as HTMLButtonElement;
+      expect(splitTrigger).toBeInTheDocument();
+    });
+  });
+
+  it("shows correct default value in split selector trigger", async () => {
+    server.use(
+      http.get("/api/data/projects/:projectId/pages/:idx0", ({ params }) =>
+        HttpResponse.json(
+          makePage({
+            project_id: String(params.projectId),
+            idx0: Number(params.idx0),
+            splits: [{ suffix: "_a", reading_order: 0 }] as any,
+          }),
+        ),
+      ),
+      http.get("/api/data/projects/:projectId/pages/:idx0/text/_", () =>
+        HttpResponse.json({
+          text: "hello world\n",
+          text_key: "projects/prj_abc/text/0001.txt",
+          words: [],
+        }),
+      ),
+    );
+
+    renderAtRoute(<TextReviewPage />, "/projects/prj_abc/pages/0/review");
+
+    // Trigger should show "(whole page)" by default.
+    await waitFor(() => {
+      const splitTrigger = document.querySelector(
+        'button[aria-label="Split selection"]',
+      ) as HTMLButtonElement;
+      expect(splitTrigger).toBeInTheDocument();
+      // The trigger should display "(whole page)" as the selected value
+      expect(splitTrigger.textContent).toContain("(whole page)");
+    });
+  });
 });

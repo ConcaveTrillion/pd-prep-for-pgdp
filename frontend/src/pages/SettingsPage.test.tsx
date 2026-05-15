@@ -132,4 +132,71 @@ describe("SettingsPage", () => {
     renderWithProviders(<SettingsPage />);
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
   });
+
+  it("renders OCR engine Radix Select with trigger button", async () => {
+    server.use(
+      http.get("/api/data/system/defaults", () =>
+        HttpResponse.json(mockDefaults),
+      ),
+    );
+    renderWithProviders(<SettingsPage />);
+    await waitFor(() => {
+      // Find by aria-label which is set on the SelectTrigger
+      const trigger = document.querySelector(
+        'button[aria-label="Engine"]',
+      ) as HTMLButtonElement;
+      expect(trigger).toBeInTheDocument();
+    });
+  });
+
+  it("shows current OCR engine value in trigger", async () => {
+    server.use(
+      http.get("/api/data/system/defaults", () =>
+        HttpResponse.json(mockDefaults),
+      ),
+    );
+    renderWithProviders(<SettingsPage />);
+    await waitFor(() => {
+      // Find the button with aria-label "Engine"
+      const trigger = document.querySelector(
+        'button[aria-label="Engine"]',
+      ) as HTMLButtonElement;
+      expect(trigger).toBeInTheDocument();
+      // The trigger should display the current value (doctr)
+      expect(trigger.textContent).toContain("doctr");
+    });
+  });
+
+  it("renders layout detector Radix Select with trigger button", async () => {
+    server.use(
+      http.get("/api/data/system/defaults", () =>
+        HttpResponse.json(mockDefaults),
+      ),
+    );
+    renderWithProviders(<SettingsPage />);
+    await waitFor(() => {
+      // Find by aria-label which is set on the SelectTrigger
+      const trigger = document.querySelector(
+        'button[aria-label="Detector"]',
+      ) as HTMLButtonElement;
+      expect(trigger).toBeInTheDocument();
+    });
+  });
+
+  it("shows current layout detector value in trigger", async () => {
+    server.use(
+      http.get("/api/data/system/defaults", () =>
+        HttpResponse.json(mockDefaults),
+      ),
+    );
+    renderWithProviders(<SettingsPage />);
+    await waitFor(() => {
+      // Find the button with aria-label "Detector"
+      const trigger = document.querySelector(
+        'button[aria-label="Detector"]',
+      ) as HTMLButtonElement;
+      expect(trigger).toBeInTheDocument();
+      expect(trigger.textContent).toContain("pp-doclayout-plus-l");
+    });
+  });
 });

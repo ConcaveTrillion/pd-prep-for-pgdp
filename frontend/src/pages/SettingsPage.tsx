@@ -6,6 +6,13 @@ import { Button, buttonVariants } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { Input } from "../components/ui/Input";
 import { Separator } from "../components/ui/Separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/Select";
 import { PageHeader } from "../components/shell/PageHeader";
 import { cn } from "@/lib/utils";
 
@@ -352,20 +359,24 @@ function SelectField({
   onChange: (v: string) => void;
 }) {
   return (
-    <label className="block text-sm">
+    <div className="block text-sm">
       <span className="text-ink-2">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1 block w-full rounded border border-border-2 bg-bg-surface px-2 py-1 text-sm text-ink-1"
-      >
-        {options.map((o) => (
-          <option key={o} value={o}>
-            {o}
-          </option>
-        ))}
-      </select>
-    </label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger
+          aria-label={label}
+          className="mt-1 block w-full rounded border border-border-2 bg-bg-surface px-2 py-1 text-sm text-ink-1"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((o) => (
+            <SelectItem key={o} value={o}>
+              {o}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   );
 }
 
