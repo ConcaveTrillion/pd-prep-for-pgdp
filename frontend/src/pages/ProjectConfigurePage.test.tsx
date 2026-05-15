@@ -13,12 +13,12 @@
  * - Tab state is reflected in URL search params.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import type { ReactElement } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { server } from "../test/server";
 import { ProjectConfigurePage } from "./ProjectConfigurePage";
 
@@ -548,5 +548,125 @@ describe("ProjectConfigurePage — P2-3 PageDrawer via URL", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("page-drawer")).not.toBeInTheDocument();
     });
+  });
+});
+
+describe("ProjectConfigurePage — BulkActions P0.1 (no stale Re-process button)", () => {
+  it("does not render a Re-process selected button", async () => {
+    setupHandlersWithPage();
+    renderWithProviders(<ProjectConfigurePage />, "/projects/proj1?tab=pages");
+
+    // Wait for the Pages tab content to load
+    await screen.findByTestId("pages-card");
+
+    // The stale "Re-process selected" button must not exist — it called
+    // the deleted POST /api/gpu/jobs endpoint (M6 cleanup, P0.1 fix).
+    expect(
+      screen.queryByRole("button", { name: /re-process selected/i }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("ProjectConfigurePage — RunPipelinePanel P0.2 (Download package)", () => {
+  // A mock EventSource that captures onmessage so tests can dispatch events.
+  class MockEventSource {
+    static instances: MockEventSource[] = [];
+    onmessage: ((e: MessageEvent) => void) | null = null;
+    onerror: ((e: Event) => void) | null = null;
+
+    constructor(_url: string) {
+      MockEventSource.instances.push(this);
+    }
+
+    close() {}
+
+    /** Dispatch a job-progress event with the given payload. */
+    emit(data: object) {
+      if (this.onmessage) {
+        this.onmessage(
+          new MessageEvent("message", { data: JSON.stringify(data) }),
+        );
+      }
+    }
+  }
+
+  it("shows Download package link after build_package completes", async () => {
+    MockEventSource.instances = [];
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    setupBaseHandlers();
+
+    server.use(
+      http.post("/api/data/projects/proj1/build-package", () =>
+        HttpResponse.json(
+          { job_id: "job_build_dl", status: "queued" },
+          { status: 202 },
+        ),
+      ),
+      http.get(
+        "/api/data/projects/proj1/assets/download-url",
+        ({ request }) => {
+          const key = new URL(request.url).searchParams.get("key");
+          // Return a local CDN path for the package zip.
+          const url = key ? `/cdn/${key}` : "/cdn/test.zip";
+          return HttpResponse.json({ download_url: url, expires_in: 3600 });
+        },
+      ),
+    );
+
+    renderWithProviders(<ProjectConfigurePage />);
+
+    // Wait for pipeline panel to render and click Run on build_package
+    const buildLabel = await screen.findByText(/step 10 — build package/i);
+    const buildListItem = buildLabel.closest("li")!;
+    const runBtn = buildListItem.querySelector(
+      'button[class*="hover:bg-slate-50"]',
+    ) as HTMLButtonElement;
+
+    await userEvent.click(runBtn);
+
+    // Wait for MockEventSource to be created by useJobProgress
+    await waitFor(() =>
+      expect(MockEventSource.instances.length).toBeGreaterThan(0),
+    );
+
+    // Dispatch a "complete" progress event from the job's SSE stream
+    await act(async () => {
+      const es =
+        MockEventSource.instances[MockEventSource.instances.length - 1];
+      es.emit({
+        type: "progress",
+        status: "complete",
+        current: 1,
+        total: 1,
+        current_page: null,
+        message: "done",
+        error: null,
+      });
+    });
+
+    // The "Download package" link should appear once the download URL is fetched
+    await waitFor(() => {
+      expect(screen.getByTestId("download-package-link")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("download-package-link")).toHaveAttribute(
+      "href",
+      expect.stringContaining("for_zip"),
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("does not show Download package link when no build_package job has completed", async () => {
+    setupBaseHandlers();
+    renderWithProviders(<ProjectConfigurePage />);
+
+    // Pipeline tab loads; no job has been submitted yet
+    await screen.findByText(/step 10 — build package/i);
+
+    // Download link should not exist
+    expect(
+      screen.queryByTestId("download-package-link"),
+    ).not.toBeInTheDocument();
   });
 });

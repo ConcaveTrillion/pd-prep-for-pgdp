@@ -68,9 +68,8 @@ export function ProjectConfigurePage() {
     queryFn: () => api.get<Project>(`/api/data/projects/${projectId}`),
   });
   // Watch the project's recent jobs (via the shared poll) so we can show a
-  // "creating thumbnails" banner while ingest is in flight. The same poll
-  // is reused by RunPipelinePanel below for its `batch_process_pages`
-  // catch-up — TanStack dedupes on the shared query key.
+  // "creating thumbnails" banner while ingest is in flight. TanStack dedupes
+  // on the shared query key so this is free when other panels also poll.
   const ingestBatch = useActiveBatchJob(projectId || null, INGEST_KINDS);
   const liveIngestJob = useMemo(
     () => ingestBatch.jobs.find((j) => j.id === ingestBatch.jobId) ?? null,
@@ -252,7 +251,10 @@ export function ProjectConfigurePage() {
           <RunAllDirtyPanel projectId={projectId} />
 
           <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
-            <RunPipelinePanel projectId={projectId} />
+            <RunPipelinePanel
+              projectId={projectId}
+              bookName={project.data?.config.book_name ?? ""}
+            />
             <div className="space-y-4">
               <ProjectJobsFeed projectId={projectId} />
               <SearchPanel projectId={projectId} />
@@ -554,21 +556,6 @@ function BulkActions({
     },
   });
 
-  const reprocess = useMutation({
-    mutationFn: () =>
-      api.post("/api/gpu/jobs", {
-        project_id: projectId,
-        job_type: "batch_process_pages",
-        page_idxs: Array.from(selected),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["jobs", "project", projectId],
-      });
-      onClear();
-    },
-  });
-
   if (selected.size === 0) return null;
 
   return (
@@ -595,14 +582,6 @@ function BulkActions({
           align {al}
         </button>
       ))}
-      <span className="text-slate-400">·</span>
-      <button
-        onClick={() => reprocess.mutate()}
-        disabled={reprocess.isPending}
-        className="rounded border border-sky-300 bg-white px-2 py-1 text-sky-700 hover:bg-sky-50 disabled:opacity-50"
-      >
-        {reprocess.isPending ? "Submitting…" : "Re-process selected"}
-      </button>
       <button
         onClick={onClear}
         className="ml-auto rounded px-2 py-1 text-slate-500 hover:bg-slate-200"
@@ -689,11 +668,20 @@ const STEPS: { type: JobType; label: string; subtitle: string }[] = [
   },
 ];
 
-function RunPipelinePanel({ projectId }: { projectId: string }) {
+function RunPipelinePanel({
+  projectId,
+  bookName,
+}: {
+  projectId: string;
+  bookName: string;
+}) {
   const [open, setOpen] = useState(true);
   const [active, setActive] = useState<Record<JobType, string | null>>({
     build_package: null,
   });
+  // Once build_package reaches "complete" we persist the job id so the
+  // download link keeps rendering even after the progress indicator resets.
+  const [completedJobId, setCompletedJobId] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   // Track any build_package job that is already running on this project (e.g.
@@ -714,6 +702,8 @@ function RunPipelinePanel({ projectId }: { projectId: string }) {
         `/api/data/projects/${projectId}/build-package`,
       );
       setActive((s) => ({ ...s, [type]: r.job_id }));
+      // Clear any previous download link when a new build starts.
+      setCompletedJobId(null);
       return r;
     },
     onSuccess: () => {
@@ -723,6 +713,25 @@ function RunPipelinePanel({ projectId }: { projectId: string }) {
       // clicking, preventing a brief flash of the enabled state.
       queryClient.invalidateQueries({ queryKey: ["jobs", projectId] });
     },
+  });
+
+  // Derive the storage key for the built package zip.
+  // Matches core/packaging.py: f"projects/{project.id}/for_zip/{book_name}.zip"
+  const packageKey = bookName
+    ? `projects/${projectId}/for_zip/${bookName}.zip`
+    : null;
+
+  // Fetch a download URL once the build_package job completes successfully.
+  // The query is disabled until we have both a completed job id and a key.
+  const downloadUrl = useQuery({
+    queryKey: ["package-download-url", projectId, packageKey],
+    queryFn: () =>
+      api.get<{ download_url: string }>(
+        `/api/data/projects/${projectId}/assets/download-url?key=${encodeURIComponent(packageKey!)}`,
+      ),
+    enabled: completedJobId !== null && packageKey !== null,
+    // Cache for 45 minutes (presigned URLs expire at 1 h server-side).
+    staleTime: 45 * 60 * 1000,
   });
 
   return (
@@ -747,8 +756,27 @@ function RunPipelinePanel({ projectId }: { projectId: string }) {
               </div>
               <div className="flex items-center gap-2">
                 {active[step.type] && (
-                  <JobProgressInline jobId={active[step.type]!} />
+                  <JobProgressInline
+                    jobId={active[step.type]!}
+                    onComplete={
+                      step.type === "build_package"
+                        ? () => setCompletedJobId(active[step.type])
+                        : undefined
+                    }
+                  />
                 )}
+                {step.type === "build_package" &&
+                  completedJobId !== null &&
+                  downloadUrl.data && (
+                    <a
+                      href={downloadUrl.data.download_url}
+                      download
+                      className="rounded border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-700 hover:bg-emerald-100"
+                      data-testid="download-package-link"
+                    >
+                      Download package
+                    </a>
+                  )}
                 <button
                   onClick={() => submit.mutate(step.type)}
                   disabled={submit.isPending || active[step.type] !== null}
@@ -768,9 +796,11 @@ function RunPipelinePanel({ projectId }: { projectId: string }) {
 function JobProgressInline({
   jobId,
   onCurrentPageChange,
+  onComplete,
 }: {
   jobId: string;
   onCurrentPageChange?: (idx0: number | null) => void;
+  onComplete?: () => void;
 }) {
   const { event, error, currentPage, isTerminal } = useJobProgress(jobId);
 
@@ -786,6 +816,13 @@ function JobProgressInline({
       if (onCurrentPageChange) onCurrentPageChange(null);
     };
   }, [onCurrentPageChange]);
+
+  // Notify parent when the job completes successfully.
+  useEffect(() => {
+    if (event?.status === "complete" && onComplete) {
+      onComplete();
+    }
+  }, [event?.status, onComplete]);
 
   if (error)
     return <span className="text-xs text-rose-600">channel: {error}</span>;
