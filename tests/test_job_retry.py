@@ -70,10 +70,10 @@ def _seed_project_and_job(settings: Settings, status: JobStatus) -> str:
                 id=job_id,
                 project_id="r1",
                 owner_id="default",
-                type=JobType.batch_process_pages,
+                type=JobType.build_package,
                 status=status,
                 payload={"page_idxs": [0, 1]},
-                error_message="cv2 raised an error" if status == JobStatus.error else None,
+                error_message="build failed" if status == JobStatus.error else None,
             )
         )
         await db.close()
@@ -95,7 +95,7 @@ def test_retry_creates_new_queued_job_with_same_payload(tmp_path) -> None:
 
         new_job = client.get(f"/api/data/jobs/{new_id}").json()
         assert new_job["status"] in ("queued", "scheduled")
-        assert new_job["type"] == "batch_process_pages"
+        assert new_job["type"] == "build_package"
         assert new_job["payload"] == {"page_idxs": [0, 1]}
         assert new_job["project_id"] == "r1"
         assert new_job["error_message"] is None

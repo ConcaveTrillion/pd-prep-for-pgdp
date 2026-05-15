@@ -70,7 +70,7 @@ def _seed(settings: Settings, *, job_id: str, status: JobStatus, owner_id: str =
                 id=job_id,
                 project_id="c1",
                 owner_id=owner_id,
-                type=JobType.batch_process_pages,
+                type=JobType.build_package,
                 status=status,
             )
         )

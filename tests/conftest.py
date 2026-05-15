@@ -4,7 +4,7 @@
 every test gets a clean filesystem-storage / SQLite database / no-auth setup.
 
 `gpu_available` is True when cupy is importable AND a working CUDA runtime
-is reachable. Tests that exercise the real LocalBackend path use
+is reachable. Tests that exercise GPU-accelerated paths use
 `@pytest.mark.skipif(not gpu_available, reason=...)` so they run on
 CUDA hosts (incl. this devcontainer when present) and skip cleanly on
 CPU-only CI.

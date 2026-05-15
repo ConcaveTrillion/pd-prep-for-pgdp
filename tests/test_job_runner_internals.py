@@ -53,7 +53,7 @@ async def test_on_dispatcher_flush_ignores_empty_job_id(
     # Should NOT raise — no_op when job_id is "".
     await runner._on_dispatcher_flush(
         "",
-        [BatchJobResult(job_type="batch_ocr", project_id="x", idx0=0, ok=True)],
+        [BatchJobResult(job_type="run_page_stage", project_id="x", idx0=0, ok=True)],
     )
 
 
@@ -65,7 +65,7 @@ async def test_on_dispatcher_flush_ignores_missing_job(
     runner = InProcessJobRunner(database=db, storage=storage)
     await runner._on_dispatcher_flush(
         "ghost-job-id",
-        [BatchJobResult(job_type="batch_ocr", project_id="x", idx0=0, ok=True)],
+        [BatchJobResult(job_type="run_page_stage", project_id="x", idx0=0, ok=True)],
     )
 
 
@@ -93,7 +93,7 @@ async def test_on_dispatcher_flush_marks_job_error_when_all_failed(
         id="j-flush",
         project_id="dp1",
         owner_id="default",
-        type=JobType.batch_process_pages,
+        type=JobType.build_package,
         status=JobStatus.scheduled,
     )
     await db.put_job(job)
@@ -102,8 +102,8 @@ async def test_on_dispatcher_flush_marks_job_error_when_all_failed(
     await runner._on_dispatcher_flush(
         "j-flush",
         [
-            BatchJobResult(job_type="batch_process_pages", project_id="dp1", idx0=0, ok=False, error="boom"),
-            BatchJobResult(job_type="batch_process_pages", project_id="dp1", idx0=1, ok=False, error="boom2"),
+            BatchJobResult(job_type="build_package", project_id="dp1", idx0=0, ok=False, error="boom"),
+            BatchJobResult(job_type="build_package", project_id="dp1", idx0=1, ok=False, error="boom2"),
         ],
     )
 

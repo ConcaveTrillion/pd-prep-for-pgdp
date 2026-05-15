@@ -54,4 +54,5 @@ def test_openapi_spec_is_buildable(client: TestClient) -> None:
     spec = r.json()
     assert "paths" in spec
     assert "/api/data/projects" in spec["paths"]
-    assert "/api/gpu/process-page" in spec["paths"]
+    # M6: /api/gpu/process-page deleted — per-stage endpoint replaced it.
+    assert "/api/gpu/process-page" not in spec["paths"]

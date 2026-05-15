@@ -10,7 +10,6 @@ Locks in:
   - unzip handler raises ValueError when source_key is empty,
   - thumbnails handler raises FileNotFoundError when project is gone,
   - build_package handler raises FileNotFoundError when project is gone,
-  - text_postprocess handler raises FileNotFoundError when project is gone,
   - run_pending wraps each as JobStatus.error so the job table reflects it.
 """
 
@@ -25,7 +24,6 @@ from pd_prep_for_pgdp.adapters.storage.filesystem import FilesystemStorage
 from pd_prep_for_pgdp.core.job_runner import (
     InProcessJobRunner,
     _handle_build_package,
-    _handle_text_postprocess,
     _handle_thumbnails,
     _handle_unzip,
 )
@@ -123,15 +121,6 @@ async def test_build_package_missing_project_raises(db, storage) -> None:
     await db.put_job(job)
     with pytest.raises(FileNotFoundError, match="ghost"):
         await _handle_build_package(runner, job)
-
-
-@pytest.mark.asyncio
-async def test_text_postprocess_missing_project_raises(db, storage) -> None:
-    runner = InProcessJobRunner(database=db, storage=storage)
-    job = _job(JobType.batch_text_postprocess, project_id="ghost")
-    await db.put_job(job)
-    with pytest.raises(FileNotFoundError, match="ghost"):
-        await _handle_text_postprocess(runner, job)
 
 
 # ─── runner integration: handler error → JobStatus.error ───────────────────

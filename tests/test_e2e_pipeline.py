@@ -1,8 +1,8 @@
 """Full pipeline e2e: ingest -> process -> ocr -> postprocess -> package.
 
 Currently asserts the steps that don't require model downloads (ingest,
-text-postprocess, package). Uses a mock GPU backend for batch_process_pages
-so the test stays hermetic.
+text-postprocess, package). Per-page stage execution uses the stage-runner
+endpoint; the test patches run_stage to stay hermetic.
 """
 
 from __future__ import annotations
@@ -85,10 +85,7 @@ def test_ingest_then_assign_prefixes_then_package(client: TestClient) -> None:
 
     # Submit a build_package job — proves the runner picks up the handler.
     # Pages have no text_review=clean rows, so the job parks in awaiting_review.
-    pkg = client.post(
-        "/api/gpu/jobs",
-        json={"project_id": project_id, "job_type": "build_package"},
-    )
+    pkg = client.post(f"/api/data/projects/{project_id}/build-package")
     assert pkg.status_code == 202
     assert _wait_for_job(client, pkg.json()["job_id"]) == "awaiting_review"
 

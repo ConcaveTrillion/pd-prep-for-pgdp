@@ -42,7 +42,7 @@ class _FakeBackend(GPUBackend):
         ]
 
 
-def _item(idx0: int, jt: str = "batch_process_pages") -> BatchJobItem:
+def _item(idx0: int, jt: str = "run_page_stage") -> BatchJobItem:
     return BatchJobItem(job_type=jt, project_id="p", idx0=idx0, payload={})
 
 
