@@ -192,6 +192,27 @@ def test_build_gpu_shared_container_returns_shared_backend(tmp_path) -> None:
     assert isinstance(backend, SharedContainerBackend)
 
 
+def test_build_gpu_backend_cpu_returns_noop(tmp_path) -> None:
+    from pd_prep_for_pgdp.bootstrap import _NoOpGPUBackend
+
+    settings = _settings(tmp_path, gpu_backend="cpu")
+    assert isinstance(build_gpu_backend(settings), _NoOpGPUBackend)
+
+
+def test_build_gpu_backend_mps_returns_noop(tmp_path) -> None:
+    from pd_prep_for_pgdp.bootstrap import _NoOpGPUBackend
+
+    settings = _settings(tmp_path, gpu_backend="mps")
+    assert isinstance(build_gpu_backend(settings), _NoOpGPUBackend)
+
+
+def test_build_gpu_backend_local_returns_noop(tmp_path) -> None:
+    from pd_prep_for_pgdp.bootstrap import _NoOpGPUBackend
+
+    settings = _settings(tmp_path, gpu_backend="local")
+    assert isinstance(build_gpu_backend(settings), _NoOpGPUBackend)
+
+
 def test_build_dispatcher_returns_batched_when_interval_set(tmp_path) -> None:
     """Non-zero `dispatch_interval_seconds` selects the BatchDispatcher
     (managed mode); zero selects the ImmediateDispatcher (local/self-hosted)."""

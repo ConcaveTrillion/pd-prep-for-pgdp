@@ -76,7 +76,7 @@ if _MODAL_AVAILABLE:
         results: list[dict] = []
         for p in payloads:
             item = BatchJobItem.model_validate(p)
-            # Per-item dispatch matching CpuBackend.run_batch's shape.
+            # Per-item dispatch shape: project_id, idx0, and stage_id per item.
             results.append(
                 BatchJobResult(
                     job_type=item.job_type,

@@ -118,7 +118,9 @@ class _NoOpGPUBackend:
         raise NotImplementedError("run_ocr removed in M6 — use per-stage endpoint")
 
     async def run_batch(self, items: list, *, progress_cb: Any = None) -> list:  # pragma: no cover
-        raise NotImplementedError("run_batch removed in M6 — use per-stage endpoint")
+        # Not reachable: no surviving job handler calls dispatcher.submit()
+        # in local/cpu/mps mode. Raise loudly if that ever changes.
+        raise NotImplementedError("_NoOpGPUBackend.run_batch must never be called")
 
 
 def build_gpu_backend(

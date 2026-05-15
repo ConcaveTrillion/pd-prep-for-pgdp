@@ -7,8 +7,7 @@ Mirrors spec 07 §"In-process queue":
     so workbench live-preview never gets stuck behind a 400-page batch.
   - All items in a window run on the same thread sequentially.
 
-Used by `LocalBackend` and `CpuBackend` so live-preview calls preempt batch
-passes.
+Used by the GPU backend so live-preview calls preempt batch passes.
 """
 
 from __future__ import annotations
