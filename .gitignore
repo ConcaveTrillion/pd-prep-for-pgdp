@@ -69,3 +69,6 @@ docs/spec-chain-report.md
 # AI=1 make output capture log
 .ci-ai.log
 .worktrees/
+.venv
+frontend/node_modules
+.venv
