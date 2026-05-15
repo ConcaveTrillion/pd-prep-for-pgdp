@@ -376,10 +376,10 @@ describe("TextReviewPage §9a delete-words flow", () => {
     };
   }
 
-  it("selects words via clicks, opens undo window on Delete keydown; ✕ confirm fires DELETE", async () => {
-    // Tests the core flow: select → Delete key → undo banner appears →
-    // ✕ button fires DELETE immediately.
-    // The 5-second timer expiry is tested in useUndoWindow.test.ts.
+  it("selects words via clicks, fires DELETE immediately on Delete keydown, banner then appears; ✕ dismisses banner", async () => {
+    // Tests the new immediate-delete flow: select → Delete key → DELETE fires
+    // immediately (soft-delete on server) → on server success undo banner appears →
+    // ✕ button closes banner (no additional DELETE).
     const deleteCalls: { url: string; body: unknown }[] = [];
 
     server.use(
@@ -443,19 +443,10 @@ describe("TextReviewPage §9a delete-words flow", () => {
     // The delete button label reflects selection size.
     await screen.findByRole("button", { name: /^Delete 2 words$/i });
 
-    // Press Delete on document.body — opens the undo window, no DELETE
-    // fires yet.
+    // Press Delete on document.body — DELETE fires immediately (soft-delete).
     fireEvent.keyDown(document.body, { key: "Delete", code: "Delete" });
 
-    // Undo banner should appear immediately.
-    await screen.findByTestId("undo-banner");
-    // No DELETE fired yet.
-    expect(deleteCalls).toHaveLength(0);
-
-    // Click ✕ — DELETE fires immediately without waiting 5 seconds.
-    const confirmBtn = screen.getByRole("button", { name: /Confirm delete/i });
-    await user.click(confirmBtn);
-
+    // DELETE fires immediately on keydown (before the undo window opens).
     await waitFor(() => {
       expect(deleteCalls).toHaveLength(1);
     });
@@ -467,18 +458,30 @@ describe("TextReviewPage §9a delete-words flow", () => {
       split_suffix: null,
     });
 
-    // After success: textarea reflects the rebuilt text from the server.
+    // After server confirms, undo banner appears.
+    await screen.findByTestId("undo-banner");
+
+    // Textarea reflects the rebuilt text from the server.
     await waitFor(() => {
       const el = document.querySelector("textarea") as HTMLTextAreaElement;
       expect(el.value).toBe("gamma\n");
     });
-    // Banner dismissed.
+
+    // Click ✕ — closes the undo window (no additional DELETE fired).
+    const confirmBtn = screen.getByRole("button", { name: /Confirm delete/i });
+    await user.click(confirmBtn);
+
+    // Banner dismissed, still only one DELETE total.
     expect(screen.queryByTestId("undo-banner")).toBeNull();
+    expect(deleteCalls).toHaveLength(1);
     await screen.findByRole("button", { name: /^Delete words$/i });
   });
 
-  it("undo banner: Undo button restores words and cancels DELETE", async () => {
+  it("undo banner: Undo button fires restore POST and closes banner", async () => {
+    // New behaviour: DELETE fires immediately on keydown. Clicking Undo fires
+    // POST .../words/restore to flip the soft-delete back. Banner closes.
     const deleteCalls: { body: unknown }[] = [];
+    const restoreCalls: { url: string; body: unknown }[] = [];
 
     server.use(
       http.get("/api/data/projects/:projectId/pages/:idx0", ({ params }) =>
@@ -509,6 +512,22 @@ describe("TextReviewPage §9a delete-words flow", () => {
           });
         },
       ),
+      http.post(
+        "/api/data/projects/:projectId/pages/:idx0/words/restore",
+        async ({ request }) => {
+          restoreCalls.push({ url: request.url, body: await request.json() });
+          return HttpResponse.json({
+            text_key: "k",
+            words_key: "k.words.json",
+            restored_count: 1,
+            text: "alpha beta\n",
+            remaining_words: [
+              makeWordRow("w_alpha", 0),
+              makeWordRow("w_beta", 60),
+            ],
+          });
+        },
+      ),
     );
 
     const user = userEvent.setup();
@@ -526,20 +545,32 @@ describe("TextReviewPage §9a delete-words flow", () => {
     await screen.findByRole("button", { name: /^Delete 1 word$/i });
     fireEvent.keyDown(document.body, { key: "Delete", code: "Delete" });
 
-    // Banner appears.
-    await screen.findByTestId("undo-banner");
-    expect(deleteCalls).toHaveLength(0);
+    // DELETE fires immediately on keydown.
+    await waitFor(() => {
+      expect(deleteCalls).toHaveLength(1);
+    });
 
-    // Click the "Undo (Ctrl+Z)" button — banner closes, no DELETE fires.
+    // Banner appears after server confirms the delete.
+    await screen.findByTestId("undo-banner");
+
+    // Click the "Undo (Ctrl+Z)" button — fires restore POST, banner closes.
     const undoBtn = screen.getByRole("button", { name: /Undo/i });
     await user.click(undoBtn);
 
-    // Banner is dismissed.
+    // Banner is dismissed immediately (optimistic restore in local state).
     expect(screen.queryByTestId("undo-banner")).toBeNull();
 
-    // Confirm no DELETE fires (give a tick for any spurious mutation).
-    await new Promise((r) => setTimeout(r, 20));
-    expect(deleteCalls).toHaveLength(0);
+    // Restore POST fires with the correct word IDs.
+    await waitFor(() => {
+      expect(restoreCalls).toHaveLength(1);
+    });
+    expect(restoreCalls[0].url).toMatch(
+      /\/api\/data\/projects\/prj_abc\/pages\/0\/words\/restore$/,
+    );
+    expect(restoreCalls[0].body).toEqual({
+      word_ids: ["w_alpha"],
+      split_suffix: null,
+    });
   });
 
   it("clears selection when Escape is pressed", async () => {
@@ -711,7 +742,10 @@ describe("TextReviewPage §9a delete-words flow", () => {
     expect(btn).toBeDisabled();
   });
 
-  it("navigate away while undo window is open fires DELETE on unmount", async () => {
+  it("navigate away while undo window is open does not fire a second DELETE", async () => {
+    // With immediate soft-delete, DELETE fires on keydown. Unmounting while
+    // the undo window is open should NOT fire an extra DELETE — commitNow's
+    // onCommit is now a no-op (the delete is already persisted).
     const deleteCalls: { body: unknown }[] = [];
 
     server.use(
@@ -763,23 +797,28 @@ describe("TextReviewPage §9a delete-words flow", () => {
     await screen.findByRole("button", { name: /^Delete 1 word$/i });
     fireEvent.keyDown(document.body, { key: "Delete", code: "Delete" });
 
-    // Banner appears, DELETE has not fired yet.
-    await screen.findByTestId("undo-banner");
-    expect(deleteCalls).toHaveLength(0);
-
-    // Unmount while undo window is open — should fire DELETE.
-    unmount();
-
+    // DELETE fires immediately on keydown (soft-delete).
     await waitFor(() => {
       expect(deleteCalls).toHaveLength(1);
     });
-    expect(deleteCalls[0].body).toEqual({
-      word_ids: ["w_alpha"],
-      split_suffix: null,
-    });
+
+    // Banner appears after server confirms.
+    await screen.findByTestId("undo-banner");
+
+    // Unmount while undo window is open — commitNow is a no-op now;
+    // exactly one DELETE was fired total (no extra on unmount).
+    unmount();
+
+    // Give a tick for any spurious second DELETE.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(deleteCalls).toHaveLength(1);
   });
 
-  it("second delete while undo window open commits first batch", async () => {
+  it("second delete while undo window open fires second DELETE immediately", async () => {
+    // With immediate soft-delete: first Delete keydown fires first DELETE
+    // right away. When the second Delete fires while the first banner is
+    // open, the second DELETE also fires immediately, and a new banner
+    // replaces the first.
     const deleteCalls: { body: unknown }[] = [];
 
     server.use(
@@ -838,21 +877,28 @@ describe("TextReviewPage §9a delete-words flow", () => {
     await screen.findByRole("button", { name: /^Delete 1 word$/i });
     fireEvent.keyDown(document.body, { key: "Delete", code: "Delete" });
 
-    // First undo window opens.
-    await screen.findByTestId("undo-banner");
-    expect(deleteCalls).toHaveLength(0);
-
-    // Select second word and trigger delete again while first window is open.
-    await user.click(rects[1]); // select w_beta (adds to selection)
-
-    fireEvent.keyDown(document.body, { key: "Delete", code: "Delete" });
-
-    // First batch should have been committed immediately.
+    // First DELETE fires immediately on keydown.
     await waitFor(() => {
       expect(deleteCalls).toHaveLength(1);
     });
     expect(deleteCalls[0].body).toEqual({
       word_ids: ["w_alpha"],
+      split_suffix: null,
+    });
+
+    // First undo banner appears after server confirms.
+    await screen.findByTestId("undo-banner");
+
+    // Select second word and trigger delete again while first window is open.
+    await user.click(rects[1]); // select w_beta (adds to selection)
+    fireEvent.keyDown(document.body, { key: "Delete", code: "Delete" });
+
+    // Second DELETE fires immediately too.
+    await waitFor(() => {
+      expect(deleteCalls).toHaveLength(2);
+    });
+    expect(deleteCalls[1].body).toEqual({
+      word_ids: ["w_beta"],
       split_suffix: null,
     });
 

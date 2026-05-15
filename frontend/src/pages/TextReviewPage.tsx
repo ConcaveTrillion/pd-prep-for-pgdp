@@ -24,6 +24,8 @@ import {
 // `make openapi-export` without manual sync.
 type DeleteWordsRequest = components["schemas"]["DeleteWordsRequest"];
 type DeleteWordsResponse = components["schemas"]["DeleteWordsResponse"];
+type RestoreWordsRequest = components["schemas"]["RestoreWordsRequest"];
+type RestoreWordsResponse = components["schemas"]["RestoreWordsResponse"];
 
 export function TextReviewPage() {
   const { projectId = "", idx0: idx0Str = "0" } = useParams();
@@ -56,6 +58,12 @@ export function TextReviewPage() {
 
   // §undo: 5-second debounced undo window for word deletes.
   const undoWindow = useUndoWindow();
+
+  // §9a: snapshot of words being deleted, held between deleteWords.mutate()
+  // and the mutation's onSuccess so we can open the undo window there.
+  const pendingDeleteRef = useRef<{ ids: string[]; words: OcrWord[] } | null>(
+    null,
+  );
 
   // Image-load state drives the overlay sizing — Konva Stage waits
   // until the <img> has rendered so we know natural & rendered sizes.
@@ -150,14 +158,13 @@ export function TextReviewPage() {
     },
   });
 
-  // §9a: hard-delete the selected words server-side. The endpoint
-  // rewrites `<root>.words.json` and `<root>.txt`; we mirror the new
-  // canonical state into local `text` / `words` so the textarea and
-  // overlay refresh without a query round-trip.
+  // §9a: soft-delete the selected words server-side. The endpoint marks
+  // words deleted=True (doesn't remove from storage); `remaining_words`
+  // in the response is the updated list. We mirror the canonical state
+  // into local `text` / `words` so the textarea and overlay refresh.
   //
-  // §undo: DELETE is now deferred — it fires only after the 5-second undo
-  // window expires (or the user confirms). Words are removed from the canvas
-  // immediately (optimistic UI) and restored if the user undoes.
+  // §undo: DELETE fires immediately. The undo window is opened after the
+  // server confirms. If the user undoes, `restoreWords` flips them back.
   const deleteWords = useMutation({
     mutationFn: (ids: string[]) =>
       api.delete<DeleteWordsResponse>(
@@ -178,36 +185,63 @@ export function TextReviewPage() {
       setActiveWordIndex(null);
       setSelectedWordIds(new Set());
       const n = resp.deleted_count ?? 0;
-      setLiveMessage(`Deleted ${n} word${n === 1 ? "" : "s"}`);
+      setLiveMessage(`Deleted ${n} word${n === 1 ? "" : "s"} — Undo available`);
       // The diff snapshot (re-OCR comparison) is a separate flow; do
       // not clear `priorText` — the user may still want to see the
       // pre-re-OCR diff after a delete.
       queryClient.invalidateQueries({
         queryKey: ["page-text", projectId, idx0, splitSuffix],
       });
+      // Open the undo window after the server-confirmed delete. onCommit
+      // is a no-op — the deletion is already persisted.
+      if (pendingDeleteRef.current) {
+        const { ids: pendingIds, words: snapshot } = pendingDeleteRef.current;
+        pendingDeleteRef.current = null;
+        undoWindow.openWindow(pendingIds, snapshot, () => {});
+      }
+    },
+  });
+
+  // §9a: restore soft-deleted words. Calls POST .../words/restore; on
+  // success mirrors the canonical server state back into local state.
+  const restoreWords = useMutation({
+    mutationFn: (ids: string[]) =>
+      api.post<RestoreWordsResponse>(
+        `/api/data/projects/${projectId}/pages/${idx0}/words/restore`,
+        {
+          word_ids: ids,
+          split_suffix: splitSuffix || null,
+        } satisfies RestoreWordsRequest,
+      ),
+    onSuccess: (resp) => {
+      setText(resp.text);
+      setWords(resp.remaining_words ?? []);
+      setDirty(false);
+      setActiveWordIndex(null);
     },
   });
 
   // §undo: trigger word delete with undo window.
   // 1. Optimistically remove the selected words from the canvas.
-  // 2. Open the 5-second undo window. The onCommit fires the real DELETE.
-  // 3. If the user undoes, restore the words to the canvas (no server call).
+  // 2. Fire DELETE immediately (soft-delete on server).
+  // 3. On server success, open the 5-second undo window (onCommit is a no-op).
+  // 4. If the user undoes, call restoreWords to flip them back server-side.
   const triggerDeleteWithUndo = (ids: string[]) => {
     if (ids.length === 0) return;
 
     // Snapshot the words being deleted for potential restoration.
     const deletedWords = words.filter((w) => ids.includes(w.id));
+    pendingDeleteRef.current = { ids, words: deletedWords };
 
     // Optimistically remove from canvas immediately.
     setWords((prev) => prev.filter((w) => !ids.includes(w.id)));
     setSelectedWordIds(new Set());
     const n = ids.length;
-    setLiveMessage(`Deleted ${n} word${n === 1 ? "" : "s"} — Undo available`);
+    setLiveMessage(`Deleting ${n} word${n === 1 ? "" : "s"}…`);
 
-    // Open the undo window. onCommit fires the real DELETE after the window.
-    undoWindow.openWindow(ids, deletedWords, () => {
-      deleteWords.mutate(ids);
-    });
+    // Fire DELETE immediately (soft-delete on server). The undo window
+    // opens in the mutation's onSuccess once the server confirms.
+    deleteWords.mutate(ids);
   };
 
   // §9a / §13a-step-2: bulk-delete + clear-selection hotkeys via
@@ -231,6 +265,7 @@ export function TextReviewPage() {
   );
 
   // §undo: Ctrl+Z / Cmd+Z restores deleted words during the undo window.
+  // Calls restoreWords to flip them back server-side.
   // Scope: body only (react-hotkeys-hook ignores INPUT/TEXTAREA by default).
   useHotkeys(
     "mod+z",
@@ -239,11 +274,13 @@ export function TextReviewPage() {
       ev.preventDefault();
       const restored = undoWindow.undo();
       if (restored) {
+        const ids = (restored as OcrWord[]).map((w) => w.id);
         setWords((prev) => [...prev, ...(restored as OcrWord[])]);
         setLiveMessage("Undo: words restored");
+        restoreWords.mutate(ids);
       }
     },
-    [undoWindow],
+    [undoWindow, restoreWords],
   );
   useHotkeys(
     "escape",
@@ -414,8 +451,10 @@ export function TextReviewPage() {
             onClick={() => {
               const restored = undoWindow.undo();
               if (restored) {
+                const ids = (restored as OcrWord[]).map((w) => w.id);
                 setWords((prev) => [...prev, ...(restored as OcrWord[])]);
                 setLiveMessage("Undo: words restored");
+                restoreWords.mutate(ids);
               }
             }}
             className="rounded border border-amber-400 bg-white px-2 py-0.5 text-xs font-medium hover:bg-amber-100"
