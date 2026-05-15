@@ -38,7 +38,7 @@ def compute_prefix(
     fidx = project.frontmatter_page_nbr_start
     for k in range(
         project.frontmatter_start_idx0,
-        min(idx0, project.frontmatter_end_idx0 + 1),
+        min(idx0 + 1, project.frontmatter_end_idx0 + 1),
     ):
         if not is_unnumbered_plate(k):
             fidx += 1
