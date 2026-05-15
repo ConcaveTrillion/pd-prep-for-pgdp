@@ -4,6 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { Download, Loader2, AlertCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
@@ -856,10 +857,81 @@ function RunPipelinePanel({
                 >
                   Run
                 </button>
+                {step.type === "build_package" && (
+                  <DownloadPackageButton projectId={projectId} />
+                )}
               </div>
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+// ─── Download Package Button ──────────────────────────────────────────────
+
+type DownloadUrlResponse = components["schemas"]["DownloadUrlResponse"];
+
+function DownloadPackageButton({ projectId }: { projectId: string }) {
+  // Fetch all recent jobs to check if build_package has completed
+  const jobs = useQuery({
+    queryKey: ["jobs", "project", projectId],
+    queryFn: () =>
+      api.get<JobSnapshot[]>(`/api/data/jobs?project_id=${projectId}&limit=20`),
+    refetchInterval: 5000,
+  });
+
+  // Find the most recent build_package job
+  const buildPackageJob = useMemo(() => {
+    if (!jobs.data) return null;
+    return jobs.data.find((j) => j.type === "build_package") ?? null;
+  }, [jobs.data]);
+
+  // Only show button if job is completed
+  const isCompleted = buildPackageJob?.status === "complete";
+
+  // Mutation to fetch the download URL when the button is clicked
+  const downloadMutation = useMutation({
+    mutationFn: () =>
+      api.get<DownloadUrlResponse>(
+        `/api/data/projects/${projectId}/assets/download-url`,
+      ),
+    onSuccess: (data) => {
+      // Open the URL in a new tab/window
+      window.open(data.download_url, "_blank");
+    },
+  });
+
+  if (!isCompleted) {
+    return null;
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        onClick={() => downloadMutation.mutate()}
+        disabled={downloadMutation.isPending}
+        className="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1.5"
+        aria-label="Download package"
+      >
+        {downloadMutation.isPending ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>Downloading…</span>
+          </>
+        ) : (
+          <>
+            <Download className="h-4 w-4" />
+            <span>Download package</span>
+          </>
+        )}
+      </button>
+      {downloadMutation.isError && (
+        <div className="flex items-center gap-1 text-xs text-rose-600">
+          <AlertCircle className="h-4 w-4" />
+          <span>Failed to download</span>
+        </div>
       )}
     </div>
   );
