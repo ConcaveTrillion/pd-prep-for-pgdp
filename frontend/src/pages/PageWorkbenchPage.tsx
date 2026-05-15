@@ -625,7 +625,7 @@ function CanvasViewer({
       node.rotation(0);
     }
     node.getLayer()?.batchDraw();
-  }, [editMode, draftAngle]);
+  }, [editMode, draftAngle, img]);
 
   // Click-on-empty-stage clears the selection. The Transformer + the rects
   // themselves stop the click via stopPropagation.
