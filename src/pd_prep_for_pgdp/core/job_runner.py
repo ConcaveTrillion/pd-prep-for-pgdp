@@ -490,6 +490,8 @@ async def _handle_project_run_dirty(runner: InProcessJobRunner, job: Job) -> Non
     total = len(pages_with_work)
     job = await runner._update_progress(job, current=0, total=total, message=f"dispatching {total} pages")
 
+    parent_errors: list[str] = []
+
     for i, (page_id, stage_ids, page_source_key) in enumerate(pages_with_work, start=1):
         child = Job(
             id=uuid.uuid4().hex,
@@ -509,7 +511,7 @@ async def _handle_project_run_dirty(runner: InProcessJobRunner, job: Job) -> Non
 
         # Run dirty stages in canonical DAG order.
         ordered = [sid for sid in PAGE_STAGE_IDS if sid in stage_ids]
-        child_ok = True
+        page_errors: list[str] = []
         for stage_id in ordered:
             try:
                 await run_stage(
@@ -522,23 +524,41 @@ async def _handle_project_run_dirty(runner: InProcessJobRunner, job: Job) -> Non
                     storage=runner._storage,
                     page_source_key=page_source_key,
                 )
-            except Exception:
-                log.warning("page %s stage %s failed in project_run_dirty", page_id, stage_id)
-                child_ok = False
+            except Exception as exc:
+                log.warning(
+                    "page %s stage %s failed in project_run_dirty: %s",
+                    page_id,
+                    stage_id,
+                    exc,
+                    exc_info=True,
+                )
+                page_errors.append(f"{page_id}/{stage_id}: {exc!r}")
 
+        child_ok = len(page_errors) == 0
         child_done = child.model_copy(
             update={
                 "status": JobStatus.complete if child_ok else JobStatus.error,
                 "completed_at": datetime.now(UTC),
+                "error_message": "; ".join(page_errors) if page_errors else None,
             }
         )
         await runner._db.put_job(child_done)
+
+        if not child_ok:
+            parent_errors.append(f"page {i}/{total}: {'; '.join(page_errors)}")
 
         job = await runner._update_progress(
             job,
             current=i,
             total=total,
             message=f"completed {i}/{total} pages",
+        )
+
+    if parent_errors:
+        raise RuntimeError(
+            f"{len(parent_errors)}/{total} pages had failures: "
+            + "; ".join(parent_errors[:5])
+            + ("..." if len(parent_errors) > 5 else "")
         )
 
 

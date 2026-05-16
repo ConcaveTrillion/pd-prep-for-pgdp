@@ -291,3 +291,64 @@ async def test_project_run_stage_all_pages(db: SqliteDatabase, storage: Filesyst
     assert mock_run.call_count == 2
     called_stages = {c.kwargs["stage_id"] for c in mock_run.call_args_list}
     assert called_stages == {"grayscale"}
+
+
+@pytest.mark.asyncio
+async def test_project_run_dirty_stage_failure_surfaces_error(
+    db: SqliteDatabase, storage: FilesystemStorage, tmp_path
+) -> None:
+    """Acceptance: when run_stage raises, child job lands in error and
+    parent job's error_message records the failure (not silently complete)."""
+    from pd_prep_for_pgdp.core.job_runner import InProcessJobRunner
+
+    project = _project("proj5")
+    await db.put_project(project)
+
+    # 2 pages, both with a dirty "grayscale" stage.
+    for i in range(2):
+        await db.put_page(_page("proj5", i))
+        await db.put_page_stage(
+            PageStageState(
+                project_id="proj5",
+                page_id=f"{i:04d}",
+                stage_id="grayscale",
+                status=PageStageStatus.dirty,
+                stage_version=1,
+            )
+        )
+
+    parent_job = Job(
+        id="parent-5",
+        project_id="proj5",
+        owner_id="default",
+        type=JobType.project_run_dirty,
+        status=JobStatus.queued,
+        payload={"data_root": str(tmp_path)},
+    )
+    await db.put_job(parent_job)
+
+    runner = InProcessJobRunner(database=db, storage=storage)
+
+    # Raise on every call so every page/stage fails.
+    with patch(
+        "pd_prep_for_pgdp.core.pipeline.stage_runner.run_stage",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("simulated stage failure"),
+    ):
+        await runner.run_pending(max_jobs=1)
+
+    parent = await db.get_job("parent-5")
+    assert parent is not None
+    # Parent must NOT be complete — it had failing pages.
+    assert parent.status != JobStatus.complete
+    # error_message must be set and mention failures.
+    assert parent.error_message is not None
+    assert "pages had failures" in parent.error_message
+
+    # Every child must be in error state.
+    all_jobs = await db.list_recent_jobs("default", 100)
+    children = [j for j in all_jobs if j.payload.get("parent_job_id") == "parent-5"]
+    assert len(children) == 2
+    for child in children:
+        assert child.status == JobStatus.error
+        assert child.error_message is not None
