@@ -244,3 +244,21 @@ def test_thumbnail_not_written_for_non_image_stage(tmp_path: Path) -> None:
 
     thumb = stage_thumbnail_path(settings.data_root, "proj1", "0000", "text_postprocess")
     assert not thumb.exists(), "thumb.png should not be written for text-output stages"
+
+
+# ─── Exception handler narrowing ─────────────────────────────────────────────
+
+
+def test_thumbnail_programmer_error_propagates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TypeError in thumbnail generation must not be silently swallowed.
+
+    Uses output_type="binary" which is in _THUMBNAIL_OUTPUT_TYPES so the
+    code reaches cv2.imdecode before short-circuiting.
+    """
+    monkeypatch.setattr(cv2, "imdecode", lambda *a, **kw: (_ for _ in ()).throw(TypeError("bad arg")))
+
+    from pd_prep_for_pgdp.core.pipeline.page_stage_writer import make_stage_thumbnail_bytes
+
+    # TypeError must propagate, not be swallowed and return None.
+    with pytest.raises(TypeError):
+        make_stage_thumbnail_bytes(_checkerboard_bgr_png(), output_type="binary")

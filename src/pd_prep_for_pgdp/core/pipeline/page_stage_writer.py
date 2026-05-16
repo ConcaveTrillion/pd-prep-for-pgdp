@@ -139,7 +139,9 @@ def make_stage_thumbnail_bytes(artifact_bytes: bytes, output_type: str) -> bytes
     try:
         import cv2  # type: ignore[import-not-found]
         import numpy as np
-
+    except ImportError:
+        return None
+    try:
         arr = np.frombuffer(artifact_bytes, dtype=np.uint8)
         img = cv2.imdecode(arr, cv2.IMREAD_UNCHANGED)
         if img is None:
@@ -152,7 +154,7 @@ def make_stage_thumbnail_bytes(artifact_bytes: bytes, output_type: str) -> bytes
             )
         ok, buf = cv2.imencode(".png", img)
         return bytes(buf.tobytes()) if ok else None
-    except Exception:
+    except (cv2.error, OSError, ValueError):
         log.warning("thumbnail generation failed for output_type=%r", output_type, exc_info=True)
         return None
 
@@ -441,7 +443,7 @@ async def commit_stage_artifact(
         try:
             ocr_text = artifact_bytes.decode("utf-8", errors="replace")
             await database.upsert_page_text(project_id, page_id, idx0, ocr_text)
-        except BaseException:
+        except Exception:
             log.warning(
                 "FTS index upsert failed for %s/%s (non-fatal; reindex --heal can repair)",
                 project_id,
