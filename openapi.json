@@ -2992,6 +2992,22 @@
             "type": "array",
             "title": "Words",
             "default": []
+          },
+          "words_partial": {
+            "type": "boolean",
+            "title": "Words Partial",
+            "default": false
+          },
+          "words_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Words Error"
           }
         },
         "type": "object",

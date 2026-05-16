@@ -1056,6 +1056,13 @@ export interface components {
              * @default []
              */
             words: components["schemas"]["OcrWord"][];
+            /**
+             * Words Partial
+             * @default false
+             */
+            words_partial: boolean;
+            /** Words Error */
+            words_error?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {

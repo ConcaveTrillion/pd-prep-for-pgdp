@@ -84,6 +84,8 @@ class GetPageTextResponse(BaseModel):
     # file was lost). The frontend treats `[]` and "no overlay" as the
     # same case, so empty-list is the more idiomatic shape than None.
     words: list[OcrWord] = []
+    words_partial: bool = False  # True when words blob existed but decode failed
+    words_error: str | None = None  # human-readable reason for partial/missing words
 
 
 class DeleteWordsRequest(BaseModel):
@@ -397,16 +399,29 @@ async def get_page_text(
     # Filter out soft-deleted words so the overlay reflects the current
     # visible word set after any delete operations.
     words: list[OcrWord] = []
+    words_partial = False
+    words_error: str | None = None
     words_key = words_key_for(text_key)
     if await storage.exists(words_key):
         try:
             raw = await storage.get_bytes(words_key)
+        except (OSError, ConnectionError) as exc:
+            log.exception("storage error fetching words blob at %s", words_key)
+            raise HTTPException(503, "words storage temporarily unavailable") from exc
+        try:
             words = [w for w in load_words_from_storage(raw) if not w.deleted]
-        except Exception:
-            log.exception("failed to decode words blob at %s; returning empty list", words_key)
-            words = []
+        except Exception as exc:
+            log.exception("failed to decode words blob at %s", words_key)
+            words_partial = True
+            words_error = f"{type(exc).__name__}: {exc}"
 
-    return GetPageTextResponse(text=text, text_key=text_key, words=words)
+    return GetPageTextResponse(
+        text=text,
+        text_key=text_key,
+        words=words,
+        words_partial=words_partial,
+        words_error=words_error,
+    )
 
 
 def _rebuild_text_from_words(words: list[OcrWord]) -> str:
@@ -516,7 +531,10 @@ async def delete_page_words(
         words = load_words_from_storage(raw)
     except Exception as exc:
         log.exception("failed to decode words blob at %s", words_key)
-        raise HTTPException(500, "words blob is corrupt") from exc
+        raise HTTPException(
+            422,
+            detail={"error_code": "words_blob_corrupt", "message": "words blob is corrupt"},
+        ) from exc
 
     drop = set(body.word_ids)
     updated_words = []
@@ -595,7 +613,10 @@ async def restore_page_words(
         words = load_words_from_storage(raw)
     except Exception as exc:
         log.exception("failed to decode words blob at %s", words_key)
-        raise HTTPException(500, "words blob is corrupt") from exc
+        raise HTTPException(
+            422,
+            detail={"error_code": "words_blob_corrupt", "message": "words blob is corrupt"},
+        ) from exc
 
     restore = set(body.word_ids)
     updated_words = []

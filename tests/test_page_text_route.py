@@ -240,3 +240,31 @@ def test_get_text_surfaces_persisted_words_when_blob_present(tmp_path) -> None:
             "height": 40,
         }
         assert body["words"][1]["id"] == "w2"
+
+
+def test_corrupt_words_blob_sets_words_partial_flag(tmp_path) -> None:
+    """A corrupt words blob must set words_partial=True, not silently return []."""
+    settings = _settings(tmp_path)
+    _seed(settings)
+
+    storage = FilesystemStorage(root=settings.data_root)
+    text_key = "projects/pt1/ocr_text/src1_p001.txt"
+
+    async def seed_blobs() -> None:
+        await storage.put_bytes(text_key, b"hello world", "text/plain")
+        await storage.put_bytes(
+            words_key_for(text_key),
+            b"this is not valid json!!! garbage bytes",
+            "application/json",
+        )
+
+    asyncio.run(seed_blobs())
+
+    app = build_app(settings)
+    with TestClient(app) as client:
+        r = client.get("/api/data/projects/pt1/pages/0/text/_")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["words"] == []
+        assert body["words_partial"] is True
+        assert body["words_error"] is not None
