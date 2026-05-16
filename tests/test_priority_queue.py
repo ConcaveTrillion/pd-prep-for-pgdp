@@ -129,3 +129,35 @@ async def test_drain_loop_cancellation_is_clean() -> None:
     with contextlib.suppress(asyncio.CancelledError):
         await drain
     # No assertion beyond "did not deadlock or raise unexpectedly".
+
+
+def test_keyboard_interrupt_not_trapped_as_future_exception() -> None:
+    """KeyboardInterrupt from a task must propagate out of asyncio.run(), not
+    be silently stored as a future exception.
+
+    Before the fix, ``except BaseException as e: fut.set_exception(e)``
+    swallowed ``KeyboardInterrupt`` into the future so the drain loop kept
+    running.  After the fix, ``BaseException`` non-``Exception`` subclasses
+    cancel the future and re-raise, which propagates out of the drain loop and
+    ultimately out of ``asyncio.run()``.
+
+    We use a plain synchronous test with an isolated ``asyncio.run()`` call so
+    that pytest itself is not disrupted by the propagating interrupt.
+    """
+    from pd_prep_for_pgdp.core.queue.single_executor import Priority, SingleExecutor
+
+    def raise_ki() -> None:
+        raise KeyboardInterrupt
+
+    async def run() -> None:
+        ex = SingleExecutor(batch_window_s=0.01)
+        drain = asyncio.create_task(ex.run_drain_loop())
+        _fut = ex.submit(Priority.INTERACTIVE, raise_ki)
+        # Yield control so the drain loop can pick up and execute the task.
+        # The KeyboardInterrupt will propagate out through the drain task and
+        # the event loop, terminating asyncio.run() with KeyboardInterrupt.
+        await asyncio.sleep(0.5)
+        drain.cancel()
+
+    with pytest.raises(KeyboardInterrupt):
+        asyncio.run(run())

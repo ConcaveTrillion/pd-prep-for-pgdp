@@ -115,9 +115,13 @@ class SingleExecutor:
         for _prio, _seq, fn, args, fut in items:
             try:
                 result = await loop.run_in_executor(self._thread, fn, *args)
-            except BaseException as e:
+            except Exception as e:
                 if not fut.done():
                     fut.set_exception(e)
+            except BaseException:
+                if not fut.done():
+                    fut.cancel()
+                raise
             else:
                 if not fut.done():
                     fut.set_result(result)
