@@ -608,15 +608,13 @@ _HANDLERS = {
 
 
 async def _distinct_owner_ids(db: IDatabase) -> list[str]:
-    """Best-effort enumeration of owner_ids the runner should poll.
+    """Return the distinct owner_ids the runner should poll for pending jobs.
 
-    Returns `["default"]` when no introspection hook exists. Postgres
-    adapter can override with a real query later.
+    Delegates to ``IDatabase.list_distinct_owner_ids()``, which returns
+    ``["default"]`` for single-user local installs and a real DB query
+    for multi-tenant adapters.
     """
-    fn = getattr(db, "list_distinct_owner_ids", None)
-    if callable(fn):
-        return list(await fn())
-    return ["default"]
+    return list(await db.list_distinct_owner_ids())
 
 
 async def _all_pages_reviewed(db: IDatabase, project_id: str) -> bool:

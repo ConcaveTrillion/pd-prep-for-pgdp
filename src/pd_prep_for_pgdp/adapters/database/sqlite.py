@@ -645,6 +645,24 @@ class SqliteDatabase:
 
         return await self._run(_go)
 
+    # ── Multi-tenant enumeration ─────────────────────────────────────────────
+
+    async def list_distinct_owner_ids(self) -> list[str]:
+        """Return all distinct owner_id values that have at least one job row.
+
+        SQLite is used exclusively for local single-user deployments, so this
+        always queries the real jobs table and falls back to ``["default"]``
+        when the table is empty.  Multi-tenant adapters (e.g. Postgres) should
+        override with a more efficient indexed query.
+        """
+
+        def _go() -> list[str]:
+            with self._cursor() as cur:
+                rows = cur.execute("SELECT DISTINCT owner_id FROM jobs").fetchall()
+            return [row[0] for row in rows] or ["default"]
+
+        return await self._run(_go)
+
 
 def _row_to_page_stage(row: tuple) -> PageStageState:
     """Hydrate a fetched DB row into a PageStageState model.

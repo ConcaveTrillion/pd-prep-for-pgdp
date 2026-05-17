@@ -119,3 +119,14 @@ class IDatabase(Protocol):
         limit: int = 20,
         offset: int = 0,
     ) -> tuple[list[SearchResult], int]: ...
+
+    # ── Multi-tenant enumeration ──────────────────────────────────────────────
+    async def list_distinct_owner_ids(self) -> list[str]:
+        """Return all owner_id values that have at least one job.
+
+        Default implementation returns ``["default"]`` so adapters that don't
+        need multi-tenant enumeration (e.g. single-user local SQLite) work
+        without override.  Postgres and other multi-tenant adapters should
+        override with a real query.
+        """
+        return ["default"]

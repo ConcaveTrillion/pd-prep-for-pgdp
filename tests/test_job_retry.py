@@ -94,7 +94,11 @@ def test_retry_creates_new_queued_job_with_same_payload(tmp_path) -> None:
         assert new_id and new_id != old_id
 
         new_job = client.get(f"/api/data/jobs/{new_id}").json()
-        assert new_job["status"] in ("queued", "scheduled")
+        # Accept "running" — the background runner may have picked up the job
+        # between the POST and this GET (dispatch_interval_seconds=0).  The
+        # key invariant is that a *new* job was created (new_id != old_id) and
+        # that the new job is active (not still in the original "error" state).
+        assert new_job["status"] in ("queued", "scheduled", "running")
         assert new_job["type"] == "build_package"
         assert new_job["payload"] == {"page_idxs": [0, 1]}
         assert new_job["project_id"] == "r1"
