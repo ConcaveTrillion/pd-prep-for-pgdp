@@ -45,4 +45,4 @@ class RetryJobRequest(BaseModel):
     job is never mutated, so the audit trail stays intact.
     """
 
-    payload_override: dict | None = None
+    payload_override: dict[str, object] | None = None

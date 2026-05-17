@@ -13,7 +13,7 @@ $(_goals):
 else
 
 .PHONY: help setup refresh-version install uninstall reset remove-venv lint format \
-        pre-commit-check test e2e build clean ci local-setup dev-local install-local \
+        typecheck pre-commit-check test e2e build clean ci local-setup dev-local install-local \
         uninstall-local check-local-editable run run-cpu run-local frontend-install \
         frontend-build frontend-dev frontend-test openapi-export upgrade-pd-book-tools \
         release-patch release-minor release-major _do-release docker-build docker-run \
@@ -252,6 +252,9 @@ openapi-export: ## Regenerate openapi.json + frontend/src/api/types.gen.ts
 # Lint / format / test / build
 # ---------------------------------------------------------------------------
 
+typecheck: ## Run basedpyright at recommended mode (workspace canonical)
+	uv run basedpyright src/pd_prep_for_pgdp --level error
+
 lint: ## Run ruff checks
 	uv run ruff check --select I --fix
 	uv run ruff check --fix
@@ -285,7 +288,7 @@ clean: ## Clean cache + build artifacts
 	find . -type d -name ".ruff_cache" -exec rm -rf {} + 2>/dev/null || true
 	rm -rf dist/ src/pd_prep_for_pgdp/static/ frontend/dist/ 2>/dev/null || true
 
-ci: setup frontend-install pre-commit-check openapi-export frontend-build test frontend-format-check frontend-lint frontend-test ## Full CI pipeline
+ci: setup frontend-install pre-commit-check typecheck openapi-export frontend-build test frontend-format-check frontend-lint frontend-test ## Full CI pipeline
 
 # ---------------------------------------------------------------------------
 # Local editable workflow (requires ../pd-book-tools sibling checkout)

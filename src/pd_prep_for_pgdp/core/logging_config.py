@@ -136,7 +136,7 @@ def configure_logging(log_format: LogFormat = "plain", level: int = logging.INFO
             root.removeHandler(handler)
 
     handler = logging.StreamHandler(stream=sys.stdout)
-    handler._pgdp_managed = True  # type: ignore[attr-defined]
+    handler._pgdp_managed = True  # pyright: ignore[reportAttributeAccessIssue]  -- dynamic attribute on StreamHandler
     handler.addFilter(RequestIdFilter())
 
     if log_format == "json":

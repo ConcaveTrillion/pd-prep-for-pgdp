@@ -321,28 +321,28 @@ def _ocr_page_tesseract(
         data = pytesseract.image_to_data(
             img, output_type=pytesseract.Output.DICT, config=f"--dpi {cfg.ocr_dpi}"
         )
-        for i, txt in enumerate(data.get("text", [])):
+        for i, txt in enumerate(data.get("text", [])):  # pyright: ignore[reportAttributeAccessIssue, reportArgumentType]
             if not txt or not txt.strip():
                 continue
             words.append(
                 OcrWord(
                     id=uuid.uuid4().hex,
-                    text=txt,
-                    confidence=float(data["conf"][i]) / 100.0
-                    if data["conf"][i] not in (-1, "-1", "")
+                    text=txt,  # pyright: ignore[reportArgumentType]
+                    confidence=float(data["conf"][i]) / 100.0  # pyright: ignore[reportArgumentType, reportCallIssue]
+                    if data["conf"][i] not in (-1, "-1", "")  # pyright: ignore[reportArgumentType, reportCallIssue]
                     else 0.0,
                     bounding_box=BoundingBox(
-                        left=int(data["left"][i]),
-                        top=int(data["top"][i]),
-                        width=int(data["width"][i]),
-                        height=int(data["height"][i]),
+                        left=int(data["left"][i]),  # pyright: ignore[reportArgumentType, reportCallIssue]
+                        top=int(data["top"][i]),  # pyright: ignore[reportArgumentType, reportCallIssue]
+                        width=int(data["width"][i]),  # pyright: ignore[reportArgumentType, reportCallIssue]
+                        height=int(data["height"][i]),  # pyright: ignore[reportArgumentType, reportCallIssue]
                     ),
                 )
             )
     except Exception as exc:
         log.exception("Tesseract image_to_data failed; returning text-only result")
         return OcrPageResult(
-            text=text,
+            text=text,  # pyright: ignore[reportArgumentType]  -- pytesseract returns bytes|str|dict; str is the actual return for image_to_string
             words=[],
             page=None,
             layout_regions=0,
@@ -353,7 +353,7 @@ def _ocr_page_tesseract(
         )
 
     return OcrPageResult(
-        text=text,
+        text=text,  # pyright: ignore[reportArgumentType]  -- pytesseract returns bytes|str|dict; str is the actual return for image_to_string
         words=words,
         page=None,
         layout_regions=0,

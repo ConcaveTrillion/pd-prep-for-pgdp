@@ -38,7 +38,7 @@ def _map_region_type(rt: Any) -> str:
         try:
             from pd_book_tools.layout.types import RegionType  # pyright: ignore[reportMissingImports]
 
-            _REGION_TYPE_MAP = {
+            _REGION_TYPE_MAP = {  # pyright: ignore[reportConstantRedefinition]
                 RegionType.figure: "illustration",
                 RegionType.table: "illustration",
                 RegionType.decoration: "decoration",

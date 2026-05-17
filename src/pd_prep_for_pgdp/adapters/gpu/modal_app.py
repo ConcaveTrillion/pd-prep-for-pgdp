@@ -18,10 +18,10 @@ from __future__ import annotations
 try:
     import modal  # pyright: ignore[reportMissingImports]
 
-    _MODAL_AVAILABLE = True
+    _MODAL_AVAILABLE = True  # pyright: ignore[reportConstantRedefinition]
 except ImportError:
     modal = None  # type: ignore[assignment]
-    _MODAL_AVAILABLE = False
+    _MODAL_AVAILABLE = False  # pyright: ignore[reportConstantRedefinition]
 
 
 if _MODAL_AVAILABLE:
@@ -49,7 +49,7 @@ if _MODAL_AVAILABLE:
     DEFAULT_TIMEOUT_S = 60 * 10  # 10 min per call; batch can go higher
 
     @app.function(gpu=GPU_PROFILE, timeout=DEFAULT_TIMEOUT_S)
-    def process_page(payload: dict) -> dict:
+    def process_page(payload: dict) -> dict:  # pyright: ignore[reportMissingTypeArgument]
         """Run Step 4 for one page on a Modal GPU container."""
         # Real impl: validate `payload` as ProcessPageRequest, fetch source
         # bytes from S3, run the pipeline, write the proofing image back to
@@ -59,13 +59,13 @@ if _MODAL_AVAILABLE:
         raise NotImplementedError("Modal process_page needs S3 storage wired — scaffold only")
 
     @app.function(gpu=GPU_PROFILE, timeout=DEFAULT_TIMEOUT_S)
-    def run_ocr(payload: dict) -> dict:
+    def run_ocr(payload: dict) -> dict:  # pyright: ignore[reportMissingTypeArgument]
         """OCR one page or split on a Modal GPU container."""
         del payload
         raise NotImplementedError("Modal run_ocr needs S3 storage wired — scaffold only")
 
     @app.function(gpu=GPU_PROFILE, timeout=DEFAULT_TIMEOUT_S * 6)
-    def run_batch(payloads: list[dict]) -> list[dict]:
+    def run_batch(payloads: list[dict]) -> list[dict]:  # pyright: ignore[reportMissingTypeArgument]
         """Run a batch of items on one warm Modal GPU container.
 
         Receiving the whole batch in one invocation amortises the ~10s cold
@@ -73,7 +73,7 @@ if _MODAL_AVAILABLE:
         """
         from pd_prep_for_pgdp.adapters.gpu.base import BatchJobItem, BatchJobResult
 
-        results: list[dict] = []
+        results: list[dict] = []  # pyright: ignore[reportMissingTypeArgument]
         for p in payloads:
             item = BatchJobItem.model_validate(p)
             # Per-item dispatch shape: project_id, idx0, and stage_id per item.

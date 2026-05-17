@@ -243,7 +243,24 @@ convention = "google"
 [tool.basedpyright]
 include = ["src", "tests", "scripts"]
 exclude = ["**/__pycache__", "**/.venv", "**/node_modules"]
-typeCheckingMode = "standard"
+
+# "recommended" is the workspace-canonical strict mode per 2026-05-17 decisions.
+# Catches unannotated functions, inferred-Any propagation, untyped decorators,
+# and missing return types that "standard" mode skips.
+typeCheckingMode = "recommended"
+# NOTE: failOnWarnings deferred — recommended mode surfaces reportUnknownMemberType/
+# reportUnknownVariableType/reportUnknownArgumentType warnings from cv2/numpy/cupy/
+# DocTR/modal stubs that lag the runtime, plus 49 pyright:ignore[reportMissingImports]
+# for optional extras not installed in the dev venv. Enable incrementally as stub
+# coverage improves and optional extras are added to the dev install.
+# failOnWarnings = true
+
+# Import cycles are structural (FastAPI dependencies, bootstrap↔adapters, etc.)
+# and resolved via TYPE_CHECKING guards. Suppress the per-file error here;
+# actual import order issues would surface as runtime ImportErrors.
+reportImportCycles = "none"
+
+# Tell basedpyright where the venv is so it finds third-party stubs.
 venvPath = "."
 venv = ".venv"
 

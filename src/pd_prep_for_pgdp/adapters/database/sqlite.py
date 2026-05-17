@@ -665,7 +665,7 @@ class SqliteDatabase:
         return await self._run(_go)
 
 
-def _row_to_page_stage(row: tuple) -> PageStageState:
+def _row_to_page_stage(row: tuple) -> PageStageState:  # pyright: ignore[reportMissingTypeArgument]
     """Hydrate a fetched DB row into a PageStageState model.
 
     Column order matches the SELECT clauses above; keep them aligned.

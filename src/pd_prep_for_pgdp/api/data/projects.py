@@ -427,7 +427,7 @@ async def project_run_dirty(
     if project is None or project.owner_id != user.user_id:
         raise HTTPException(404, "project not found")
 
-    payload: dict = {"data_root": str(settings.data_root)}
+    payload: dict[str, str] = {"data_root": str(settings.data_root)}
     if stage_filter is not None:
         payload["stage_filter"] = stage_filter
 

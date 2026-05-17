@@ -121,7 +121,7 @@ class _NoOpGPUBackend:
     async def run_ocr(self, req: Any) -> Any:  # pragma: no cover
         raise NotImplementedError("run_ocr removed in M6 — use per-stage endpoint")
 
-    async def run_batch(self, items: list, *, progress_cb: Any = None) -> list:  # pragma: no cover
+    async def run_batch(self, items: list, *, progress_cb: Any = None) -> list:  # pyright: ignore[reportMissingTypeArgument]  # pragma: no cover
         # Not reachable: no surviving job handler calls dispatcher.submit()
         # in local/cpu/mps mode. Raise loudly if that ever changes.
         raise NotImplementedError("_NoOpGPUBackend.run_batch must never be called")
@@ -142,7 +142,7 @@ def build_gpu_backend(
         # per-stage endpoint (POST .../stages/{id}/run). Return a no-op stub
         # so the remaining gpu-router stubs (suggest-splits, etc.) and healthz
         # can still read the backend name without crashing.
-        return _NoOpGPUBackend()  # type: ignore[return-value]
+        return _NoOpGPUBackend()  # pyright: ignore[reportReturnType]  -- _NoOpGPUBackend partial stub; never called in real pipeline
     if chosen == "modal":
         if not (settings.modal_token_id and settings.modal_token_secret):
             raise RuntimeError("MODAL_TOKEN_ID + MODAL_TOKEN_SECRET required when gpu_backend=modal")
