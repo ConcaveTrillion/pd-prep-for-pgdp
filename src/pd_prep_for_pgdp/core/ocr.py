@@ -282,7 +282,8 @@ def ocr_page(
                     image_path.name,
                 )
         except Exception:
-            log.exception("validate_word_preservation failed (continuing)")
+            log.exception("validate_word_preservation failed; dropped_word_count set to -1 (unknown)")
+            dropped = -1  # sentinel: unknown, not "zero drops"
 
     return OcrPageResult(
         text=page.text or "",

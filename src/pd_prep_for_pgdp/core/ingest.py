@@ -156,7 +156,11 @@ def _resolve_thumbnail_workers(*, override: int | None) -> int:
         try:
             return max(1, int(raw))
         except ValueError:
-            log.warning("PGDP_THUMBNAIL_WORKERS=%r not an int; falling back to cpu_count", raw)
+            log.error(
+                "PGDP_THUMBNAIL_WORKERS=%r is not a valid integer; using cpu_count. "
+                "Set a valid integer to silence this.",
+                raw,
+            )
     return max(1, os.cpu_count() or 1)
 
 

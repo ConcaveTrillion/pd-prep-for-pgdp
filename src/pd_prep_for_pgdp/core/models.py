@@ -8,9 +8,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
+
+
+def _empty_str_to_none(v: str | None) -> str | None:
+    """Coerce empty string to None for storage-key fields."""
+    return None if v == "" else v
+
+
+NonEmptyStr = Annotated[str | None, BeforeValidator(_empty_str_to_none)]
 
 # ─── Shared base ─────────────────────────────────────────────────────────────
 
@@ -178,12 +186,12 @@ class PageOutput(ApiModel):
     split_suffix: str | None
     reading_order: int
 
-    proofing_image_key: str | None = None
-    pre_ocr_image_key: str | None = None
-    ocr_image_key: str | None = None
-    ocr_text_key: str | None = None
-    for_zip_image_key: str | None = None
-    for_zip_text_key: str | None = None
+    proofing_image_key: NonEmptyStr = None
+    pre_ocr_image_key: NonEmptyStr = None
+    ocr_image_key: NonEmptyStr = None
+    ocr_text_key: NonEmptyStr = None
+    for_zip_image_key: NonEmptyStr = None
+    for_zip_text_key: NonEmptyStr = None
 
     ocr_status: PageProcessingStatus = PageProcessingStatus.pending
     ocr_job_id: str | None = None

@@ -42,6 +42,7 @@ class SingleExecutor:
         self._thread = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gpu-exec")
         self._counter = 0
         self._counter_lock = threading.Lock()
+        self._queue: asyncio.PriorityQueue | None = None
         # Process exit was sometimes blocked by the worker thread waiting on a
         # cancelled future. Register an atexit hook so a missed __aexit__
         # doesn't pin the interpreter at shutdown.
@@ -62,7 +63,7 @@ class SingleExecutor:
     @property
     def queue(self) -> asyncio.PriorityQueue:
         # Lazy: the queue must be created on the asyncio loop that owns it.
-        if not hasattr(self, "_queue"):
+        if self._queue is None:
             self._queue = asyncio.PriorityQueue()
         return self._queue
 
