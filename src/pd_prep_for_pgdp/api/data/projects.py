@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import contextlib
+import logging
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,6 +32,8 @@ from ...core.models import (
 from ...settings import Settings
 from ..dependencies import get_database, get_settings, get_storage, get_user
 
+log = logging.getLogger(__name__)
+
 # M4 spec §Disk-cost banner: rough multiplier from source-zip bytes to full-DAG bytes.
 # Empirically: 22 stages, most are image-typed at ~0.5x source per stage,
 # plus JSON/text stages at negligible size -> order-of-magnitude guidance.
@@ -48,14 +50,19 @@ def _compute_stage_artifacts_bytes(data_root: Path, project_id: str) -> int:
     if not project_dir.is_dir():
         return 0
     total = 0
+    _first_disk_scan_error_logged = False
     for page_dir in project_dir.iterdir():
         stages_dir = page_dir / "stages"
         if not stages_dir.is_dir():
             continue
         for f in stages_dir.rglob("*"):
             if f.is_file():
-                with contextlib.suppress(OSError):
+                try:
                     total += f.stat().st_size
+                except OSError as exc:
+                    if not _first_disk_scan_error_logged:
+                        log.warning("disk cost scan: stat failed for %s: %s", f, exc)
+                        _first_disk_scan_error_logged = True
     return total
 
 
