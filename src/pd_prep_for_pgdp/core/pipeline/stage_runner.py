@@ -55,7 +55,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import inspect
 import json
 import logging
 from pathlib import Path
@@ -605,18 +604,11 @@ async def _commit_single_artifact(
 def _call_impl(impl: Any, artifacts: list[Any], cfg: Any) -> Any:
     """Call a stage impl with its input artifacts and resolved config.
 
-    Passes ``cfg`` as a keyword argument only when the impl's signature
-    declares it, so existing test mocks that use bare ``lambda img: ...``
-    or ``def _kaboom(_x): raise ...`` continue to work without modification.
+    All registered stage impls accept ``cfg`` as a keyword argument (defaulting
+    to ``None``).  The ``cfg`` keyword is always forwarded — no runtime
+    signature introspection required.
     """
-    try:
-        accepts_cfg = "cfg" in inspect.signature(impl).parameters
-    except (ValueError, TypeError):
-        accepts_cfg = False
-
-    if accepts_cfg:
-        return impl(artifacts[0], cfg=cfg) if len(artifacts) == 1 else impl(*artifacts, cfg=cfg)
-    return impl(artifacts[0]) if len(artifacts) == 1 else impl(*artifacts)
+    return impl(artifacts[0], cfg=cfg) if len(artifacts) == 1 else impl(*artifacts, cfg=cfg)
 
 
 # ─── Public entry point ────────────────────────────────────────────────────
@@ -937,7 +929,7 @@ async def run_stage(
                     # Coerce numpy scalar types (int64, float32, etc.) to native
                     # Python so json.dumps can serialise without a custom encoder.
                     if isinstance(output, (tuple, list)):
-                        output = [int(v) if hasattr(v, "item") else v for v in output]
+                        output = [int(v) if isinstance(v, np.generic) else v for v in output]
                     artifact_bytes = json.dumps(output).encode()
                 elif stage.output_type == "text":
                     artifact_bytes = output.encode() if isinstance(output, str) else bytes(output)

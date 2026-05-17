@@ -245,7 +245,7 @@ def test_run_stage_route_500_when_impl_raises_with_failed_row(
 
     from pd_prep_for_pgdp.core.pipeline import stage_registry
 
-    def _kaboom(_x):
+    def _kaboom(_x, cfg=None):
         raise ValueError("synthetic stage failure for tests")
 
     monkeypatch.setitem(stage_registry.STAGE_IMPL["grayscale"], "cpu", _kaboom)

@@ -263,7 +263,7 @@ def test_async_job_runs_to_completion_and_stage_is_clean(
         "words.json": json.dumps(fake_words).encode(),
         "raw.txt": b"Hello",
     }
-    monkeypatch.setitem(reg_module.STAGE_IMPL["ocr"], "cpu", lambda image: fake_result)
+    monkeypatch.setitem(reg_module.STAGE_IMPL["ocr"], "cpu", lambda image, cfg=None: fake_result)
 
     settings = _settings(tmp_path)
     _seed(settings)
